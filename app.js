@@ -243,7 +243,7 @@ app.event('assistant_thread_context_changed', async ({ event, say, client }) => 
 });
 
 // Listen to messages in AI Assistant threads
-app.event('message', async ({ event, say, client }) => {
+app.event('message', async ({ event, say, client, context }) => {
   // Skip messages from bots (including ourselves)
   if (event.bot_id || event.subtype) {
     return;
@@ -265,7 +265,8 @@ app.event('message', async ({ event, say, client }) => {
       conversationHistory = await getConversationHistory(client, event.channel, event.thread_ts);
 
       // Get AI response from GROK with conversation context
-      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, event.team);
+      console.log('Context object in app.message:', context);
+      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, context.teamId);
       
       // Reply with the AI response in the same thread
       await say({
@@ -310,7 +311,7 @@ app.event('message', async ({ event, say, client }) => {
       console.log('DM conversation history:', conversationHistory);
 
       // Get AI response from GROK with conversation context
-      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, event.team);
+      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, context.teamId);
       
       // Reply with the AI response
       await say(aiResponse);
