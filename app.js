@@ -7,19 +7,15 @@ const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: false,
-  port: process.env.PORT || 3000,
-  endpoints: {
-    events: '/slack/events',
-    interactive: '/slack/interactive',
-    commands: '/slack/commands'
-  }
+  port: process.env.PORT || 3000
 });
 
 // GROK API integration function
 async function callGrokAPI(message, userId) {
   try {
-    // Note: You'll need to replace this with the actual GROK API endpoint and format
-    // This is a placeholder structure
+    console.log('Calling GROK API with message:', message);
+    console.log('XAI_API_KEY available:', !!process.env.XAI_API_KEY);
+    
     const response = await axios.post('https://api.x.ai/v1/chat/completions', {
       model: 'grok-2-1212',
       messages: [
@@ -190,6 +186,12 @@ app.event('app_home_opened', async ({ event, client }) => {
 app.action('help_button', async ({ ack, say }) => {
   await ack();
   await say('I\'m an AI assistant powered by GROK! I can help you with questions, provide information, and assist with various tasks. Just ask me anything!');
+});
+
+// Add request logging middleware
+app.use(async ({ next }) => {
+  console.log('Processing Slack request...');
+  await next();
 });
 
 // Error handling
