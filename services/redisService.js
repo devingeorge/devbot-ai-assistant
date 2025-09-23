@@ -7,11 +7,10 @@ class RedisService {
   }
 
   async connect() {
-    try {
-      // Temporarily disable Redis connection to fix deployment issues
-      console.log('⚠️ Redis connection temporarily disabled - app will work without Redis');
-      this.isConnected = false;
-      return false;
+    // Permanently disable Redis connection to fix deployment issues
+    console.log('⚠️ Redis connection disabled - app will work without Redis');
+    this.isConnected = false;
+    return false;
 
       // Skip Redis connection if no URL is provided (for local development)
       if (!process.env.REDIS_URL) {
