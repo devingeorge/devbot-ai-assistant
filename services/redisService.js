@@ -8,11 +8,11 @@ class RedisService {
 
   async connect() {
     try {
-      // Skip Redis connection if no URL is provided
+      // Redis is required for this app
       if (!process.env.REDIS_URL) {
-        console.log('⚠️ No REDIS_URL provided - Redis features disabled');
-        this.isConnected = false;
-        return false;
+        console.error('❌ Missing REDIS_URL environment variable');
+        console.error('   Please set REDIS_URL in your environment variables');
+        process.exit(1);
       }
 
       console.log('Attempting to connect to Redis:', process.env.REDIS_URL);
@@ -20,14 +20,15 @@ class RedisService {
       this.client = createClient({
         url: process.env.REDIS_URL,
         socket: {
-          connectTimeout: 10000,
-          lazyConnect: true,
+          connectTimeout: 30000,
+          lazyConnect: false,
           reconnectStrategy: (retries) => {
-            if (retries > 3) {
-              console.log('Redis reconnection failed after 3 attempts');
+            console.log(`Redis reconnection attempt ${retries}`);
+            if (retries > 5) {
+              console.error('Redis reconnection failed after 5 attempts');
               return false;
             }
-            return Math.min(retries * 100, 3000);
+            return Math.min(retries * 200, 5000);
           }
         }
       });
@@ -47,19 +48,38 @@ class RedisService {
         this.isConnected = true;
       });
 
-      // Try to connect with timeout
-      const connectPromise = this.client.connect();
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout')), 15000)
-      );
+      this.client.on('reconnecting', () => {
+        console.log('🔄 Redis Client Reconnecting...');
+        this.isConnected = false;
+      });
 
-      await Promise.race([connectPromise, timeoutPromise]);
-      return true;
+      // Connect with retry logic
+      let attempts = 0;
+      const maxAttempts = 5;
+      
+      while (attempts < maxAttempts) {
+        try {
+          await this.client.connect();
+          console.log('✅ Redis connection successful');
+          return true;
+        } catch (error) {
+          attempts++;
+          console.error(`Redis connection attempt ${attempts} failed:`, error.message);
+          
+          if (attempts >= maxAttempts) {
+            console.error('❌ Failed to connect to Redis after 5 attempts');
+            console.error('   Please check your REDIS_URL and Redis service status');
+            process.exit(1);
+          }
+          
+          console.log(`Retrying in ${attempts * 2} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, attempts * 2000));
+        }
+      }
     } catch (error) {
       console.error('Failed to connect to Redis:', error.message);
-      console.log('⚠️ Continuing without Redis - integration features will be limited');
-      this.isConnected = false;
-      return false;
+      console.error('   Please check your REDIS_URL and Redis service status');
+      process.exit(1);
     }
   }
 
@@ -204,6 +224,18 @@ class RedisService {
     } catch (error) {
       console.error('Redis health check failed:', error);
       return false;
+    }
+  }
+
+  // Graceful shutdown
+  async quit() {
+    if (this.client) {
+      try {
+        await this.client.quit();
+        console.log('✅ Redis connection closed gracefully');
+      } catch (error) {
+        console.error('Error closing Redis connection:', error);
+      }
     }
   }
 }

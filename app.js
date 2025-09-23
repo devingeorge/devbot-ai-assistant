@@ -525,13 +525,9 @@ app.error((error) => {
 // Start the app
 (async () => {
   try {
-    // Connect to Redis
-    const redisConnected = await redisService.connect();
-    if (redisConnected) {
-      console.log('✅ Redis connected successfully');
-    } else {
-      console.log('⚠️ Redis connection failed - continuing without Redis');
-    }
+    // Connect to Redis (required)
+    await redisService.connect();
+    console.log('✅ Redis connected successfully');
 
     await app.start();
     console.log('⚡️ Slack AI Assistant is running!');
@@ -541,6 +537,25 @@ app.error((error) => {
     console.log('- XAI_API_KEY:', process.env.XAI_API_KEY ? 'Set' : 'Missing');
     console.log('- REDIS_URL:', process.env.REDIS_URL ? 'Set' : 'Missing');
     console.log('- PORT:', process.env.PORT || 3000);
+
+    // Graceful shutdown handling
+    const shutdown = async (signal) => {
+      try {
+        console.log(`[shutdown] signal=${signal} — closing Redis connection...`);
+        await redisService.quit();
+      } catch (e) {
+        console.error('[shutdown] Redis quit error', e);
+      }
+      try {
+        await app.stop?.();
+      } catch (e) {
+        console.error('[shutdown] App stop error', e);
+      }
+      process.exit(0);
+    };
+
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
   } catch (error) {
     console.error('Failed to start the app:', error);
     process.exit(1);
