@@ -7,7 +7,12 @@ const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: false,
-  port: process.env.PORT || 3000
+  port: process.env.PORT || 3000,
+  endpoints: {
+    events: '/slack/events',
+    interactive: '/slack/events',
+    commands: '/slack/events'
+  }
 });
 
 // GROK API integration function
