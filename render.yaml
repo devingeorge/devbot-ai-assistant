@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: devbot-ai-assistant
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: GROK_API_KEY
+        sync: false
+      - key: PORT
+        value: 10000
