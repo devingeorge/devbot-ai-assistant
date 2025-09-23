@@ -215,6 +215,12 @@ app.event('assistant_thread_started', async ({ event, client }) => {
   try {
     console.log('AI Assistant thread started:', event);
     
+    // Check if we have the required channel information
+    if (!event.channel) {
+      console.log('No channel information in assistant_thread_started event');
+      return;
+    }
+    
     // Post a welcome message in the AI Assistant thread
     await client.chat.postMessage({
       channel: event.channel,
