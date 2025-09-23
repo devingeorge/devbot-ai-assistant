@@ -460,7 +460,11 @@ app.view('jira_setup', async ({ ack, body, view, client }) => {
   await ack();
   
   try {
-    const teamId = body.team.id;
+    // Get team ID from the correct location
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    console.log('Jira setup - body.team:', body.team);
+    console.log('Jira setup - body.user:', body.user);
+    console.log('Jira setup - teamId:', teamId);
     const values = view.state.values;
     
     const credentials = {
