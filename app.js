@@ -7,12 +7,7 @@ const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: false,
-  port: process.env.PORT || 3000,
-  endpoints: {
-    events: '/slack/events',
-    interactive: '/slack/interactive',
-    commands: '/slack/commands'
-  }
+  port: process.env.PORT || 3000
 });
 
 // GROK API integration function
@@ -206,17 +201,6 @@ app.use(async ({ next }) => {
   await next();
 });
 
-// Test endpoint for GROK API
-app.receiver.router.get('/test-grok', async (req, res) => {
-  try {
-    console.log('Testing GROK API...');
-    const result = await callGrokAPI('Hello, this is a test message', 'test-user');
-    res.json({ success: true, response: result });
-  } catch (error) {
-    console.error('GROK API test failed:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
 
 // Error handling
 app.error((error) => {
