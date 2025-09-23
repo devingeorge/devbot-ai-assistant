@@ -21,8 +21,8 @@ async function callGrokAPI(message, userId) {
     console.log('Calling GROK API with message:', message);
     console.log('XAI_API_KEY available:', !!process.env.XAI_API_KEY);
     
-    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
-      model: 'grok-2-1212',
+    const requestBody = {
+      model: 'grok-2',
       messages: [
         {
           role: 'system',
@@ -35,7 +35,11 @@ async function callGrokAPI(message, userId) {
       ],
       max_tokens: 1000,
       temperature: 0.7
-    }, {
+    };
+    
+    console.log('Request body:', JSON.stringify(requestBody, null, 2));
+    
+    const response = await axios.post('https://api.x.ai/v1/chat/completions', requestBody, {
       headers: {
         'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
         'Content-Type': 'application/json'
@@ -200,6 +204,18 @@ app.action('help_button', async ({ ack, say }) => {
 app.use(async ({ next }) => {
   console.log('Processing Slack request...');
   await next();
+});
+
+// Test endpoint for GROK API
+app.receiver.router.get('/test-grok', async (req, res) => {
+  try {
+    console.log('Testing GROK API...');
+    const result = await callGrokAPI('Hello, this is a test message', 'test-user');
+    res.json({ success: true, response: result });
+  } catch (error) {
+    console.error('GROK API test failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Error handling
