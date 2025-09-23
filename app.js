@@ -65,8 +65,8 @@ async function getConversationHistory(client, channelId, threadTs) {
     
     const messages = [];
     for (const message of result.messages) {
-      // Skip the first message (original mention) and bot messages
-      if (message.ts === threadTs || message.bot_id) continue;
+      // Skip the first message (original mention)
+      if (message.ts === threadTs) continue;
       
       // Determine role based on whether it's from a bot or user
       const role = message.bot_id ? 'assistant' : 'user';
@@ -76,6 +76,7 @@ async function getConversationHistory(client, channelId, threadTs) {
       });
     }
     
+    console.log('Conversation history:', messages);
     return messages;
   } catch (error) {
     console.error('Error getting conversation history:', error);
@@ -182,7 +183,7 @@ app.event('message', async ({ event, say, client }) => {
         
         const messages = [];
         for (const message of result.messages) {
-          if (message.ts === event.ts || message.bot_id) continue;
+          if (message.ts === event.ts) continue; // Skip current message
           const role = message.bot_id ? 'assistant' : 'user';
           messages.push({
             role: role,
@@ -190,6 +191,7 @@ app.event('message', async ({ event, say, client }) => {
           });
         }
         conversationHistory = messages.reverse(); // Reverse to get chronological order
+        console.log('DM conversation history:', conversationHistory);
       }
 
       // Get AI response from GROK with conversation context
