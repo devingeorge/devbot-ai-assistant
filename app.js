@@ -10,8 +10,8 @@ const app = new App({
   port: process.env.PORT || 3000,
   endpoints: {
     events: '/slack/events',
-    interactive: '/slack/events',
-    commands: '/slack/events'
+    interactive: '/slack/interactive',
+    commands: '/slack/commands'
   }
 });
 
