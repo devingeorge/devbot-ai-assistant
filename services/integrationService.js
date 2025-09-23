@@ -11,7 +11,7 @@ class IntegrationService {
   }
 
   // Jira Integration
-  async jiraIntegration(action, params, teamId) {
+  jiraIntegration = async (action, params, teamId) => {
     const credentials = await redisService.getCredentials(teamId, 'jira');
     if (!credentials) {
       throw new Error('Jira credentials not configured. Please set up Jira integration first.');
@@ -176,7 +176,7 @@ class IntegrationService {
   }
 
   // GitHub Integration (placeholder)
-  async githubIntegration(action, params, teamId) {
+  githubIntegration = async (action, params, teamId) => {
     const credentials = await redisService.getCredentials(teamId, 'github');
     if (!credentials) {
       throw new Error('GitHub credentials not configured. Please set up GitHub integration first.');
@@ -187,7 +187,7 @@ class IntegrationService {
   }
 
   // Confluence Integration (placeholder)
-  async confluenceIntegration(action, params, teamId) {
+  confluenceIntegration = async (action, params, teamId) => {
     const credentials = await redisService.getCredentials(teamId, 'confluence');
     if (!credentials) {
       throw new Error('Confluence credentials not configured. Please set up Confluence integration first.');
