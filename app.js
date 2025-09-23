@@ -417,6 +417,26 @@ app.action('setup_jira_button', async ({ ack, body, client }) => {
               type: 'plain_text',
               text: 'Jira API Token'
             }
+          },
+          {
+            type: 'input',
+            block_id: 'jira_default_project',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'default_project',
+              placeholder: {
+                type: 'plain_text',
+                text: 'BUGS'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Default Project Key (e.g., BUGS, PROJ, DEV)'
+            },
+            hint: {
+              type: 'plain_text',
+              text: 'This will be used as the default project when creating tickets'
+            }
           }
         ]
       }
@@ -441,7 +461,8 @@ app.view('jira_setup', async ({ ack, body, view, client }) => {
     const credentials = {
       baseUrl: values.jira_url.url.value,
       username: values.jira_username.username.value,
-      apiToken: values.jira_token.token.value
+      apiToken: values.jira_token.token.value,
+      defaultProject: values.jira_default_project.default_project.value
     };
     
     // Validate credentials

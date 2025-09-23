@@ -17,7 +17,12 @@ class IntegrationService {
       throw new Error('Jira credentials not configured. Please set up Jira integration first.');
     }
 
-    const { baseUrl, username, apiToken } = credentials;
+    const { baseUrl, username, apiToken, defaultProject } = credentials;
+
+    // Add default project to params if not specified
+    if (action === 'create_ticket' && !params.project && defaultProject) {
+      params.defaultProject = defaultProject;
+    }
 
     switch (action) {
       case 'create_ticket':
@@ -35,11 +40,14 @@ class IntegrationService {
     try {
       const { project, summary, description, issueType = 'Task' } = params;
       
+      // Use the project from params, or fall back to default project from credentials
+      const projectKey = project || params.defaultProject || 'TASK';
+      
       const response = await axios.post(
         `${baseUrl}/rest/api/3/issue`,
         {
           fields: {
-            project: { key: project },
+            project: { key: projectKey },
             summary: summary,
             description: description,
             issuetype: { name: issueType }
@@ -60,7 +68,7 @@ class IntegrationService {
         success: true,
         ticketKey: response.data.key,
         ticketUrl: `${baseUrl}/browse/${response.data.key}`,
-        message: `Created Jira ticket ${response.data.key}: ${summary}`
+        message: `Created Jira ticket ${response.data.key} in project ${projectKey}: ${summary}`
       };
     } catch (error) {
       console.error('Error creating Jira ticket:', error.response?.data || error.message);
