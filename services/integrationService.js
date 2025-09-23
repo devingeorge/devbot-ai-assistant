@@ -43,8 +43,17 @@ class IntegrationService {
       // Use the project from params, or fall back to default project from credentials
       const projectKey = project || params.defaultProject || 'TASK';
       
+      console.log('Creating Jira ticket with:', {
+        baseUrl,
+        username,
+        projectKey,
+        summary,
+        description,
+        issueType
+      });
+      
       const response = await axios.post(
-        `${baseUrl}/rest/api/3/issue`,
+        `${baseUrl}/rest/api/2/issue`,
         {
           fields: {
             project: { key: projectKey },
@@ -64,6 +73,8 @@ class IntegrationService {
         }
       );
 
+      console.log('Jira ticket created successfully:', response.data);
+
       return {
         success: true,
         ticketKey: response.data.key,
@@ -72,7 +83,22 @@ class IntegrationService {
       };
     } catch (error) {
       console.error('Error creating Jira ticket:', error.response?.data || error.message);
-      throw new Error(`Failed to create Jira ticket: ${error.response?.data?.errorMessages?.join(', ') || error.message}`);
+      console.error('Full error details:', error);
+      
+      // Extract more helpful error messages from Jira API
+      let errorMessage = 'Failed to create ticket';
+      if (error.response?.data?.errorMessages) {
+        errorMessage = error.response.data.errorMessages.join(', ');
+      } else if (error.response?.data?.errors) {
+        const errors = Object.entries(error.response.data.errors)
+          .map(([field, msg]) => `${field}: ${msg}`)
+          .join(', ');
+        errorMessage = errors;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      throw new Error(`Failed to create Jira ticket: ${errorMessage}`);
     }
   }
 
@@ -209,7 +235,7 @@ class IntegrationService {
       const { baseUrl, username, apiToken } = credentials;
       
       const response = await axios.get(
-        `${baseUrl}/rest/api/3/myself`,
+        `${baseUrl}/rest/api/2/myself`,
         {
           auth: {
             username: username,
