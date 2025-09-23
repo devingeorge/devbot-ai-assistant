@@ -154,15 +154,66 @@ app.command('/ai', async ({ command, ack, say, respond }) => {
   }
 });
 
-// Listen to direct messages
+// Listen to AI Assistant thread started events
+app.event('assistant_thread_started', async ({ event, say, client }) => {
+  try {
+    console.log('AI Assistant thread started:', event);
+    await say('Hello! How can I help you today?');
+  } catch (error) {
+    console.error('Error handling assistant thread started:', error);
+  }
+});
+
+// Listen to AI Assistant thread context changed events
+app.event('assistant_thread_context_changed', async ({ event, say, client }) => {
+  try {
+    console.log('AI Assistant thread context changed:', event);
+    // Handle context changes if needed
+  } catch (error) {
+    console.error('Error handling assistant thread context changed:', error);
+  }
+});
+
+// Listen to messages in AI Assistant threads
 app.event('message', async ({ event, say, client }) => {
   // Skip messages from bots (including ourselves)
   if (event.bot_id || event.subtype) {
     return;
   }
 
-  // Only respond to direct messages (channel type 'im')
-  if (event.channel_type === 'im') {
+  // Handle AI Assistant messages (channel type 'im' and has thread_ts)
+  if (event.channel_type === 'im' && event.thread_ts) {
+    try {
+      console.log('Processing AI Assistant message:', event);
+      
+      // Show typing indicator
+      await client.conversations.mark({
+        channel: event.channel,
+        ts: event.ts
+      });
+
+      // Get conversation history for AI Assistant thread
+      let conversationHistory = [];
+      conversationHistory = await getConversationHistory(client, event.channel, event.thread_ts);
+
+      // Get AI response from GROK with conversation context
+      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory);
+      
+      // Reply with the AI response in the same thread
+      await say({
+        text: aiResponse,
+        thread_ts: event.thread_ts
+      });
+    } catch (error) {
+      console.error('Error processing AI Assistant message:', error);
+      await say({
+        text: 'Sorry, I encountered an error processing your request. Please try again.',
+        thread_ts: event.thread_ts
+      });
+    }
+  }
+  // Handle regular DM messages (no thread_ts)
+  else if (event.channel_type === 'im' && !event.thread_ts) {
     try {
       // Show typing indicator
       await client.conversations.mark({
@@ -172,27 +223,23 @@ app.event('message', async ({ event, say, client }) => {
 
       // Get conversation history for DMs (use channel as thread)
       let conversationHistory = [];
-      if (event.thread_ts) {
-        conversationHistory = await getConversationHistory(client, event.channel, event.thread_ts);
-      } else {
-        // For DMs without threads, get recent message history
-        const result = await client.conversations.history({
-          channel: event.channel,
-          limit: 10
+      // For DMs without threads, get recent message history
+      const result = await client.conversations.history({
+        channel: event.channel,
+        limit: 10
+      });
+      
+      const messages = [];
+      for (const message of result.messages) {
+        if (message.ts === event.ts) continue; // Skip current message
+        const role = message.bot_id ? 'assistant' : 'user';
+        messages.push({
+          role: role,
+          content: message.text
         });
-        
-        const messages = [];
-        for (const message of result.messages) {
-          if (message.ts === event.ts) continue; // Skip current message
-          const role = message.bot_id ? 'assistant' : 'user';
-          messages.push({
-            role: role,
-            content: message.text
-          });
-        }
-        conversationHistory = messages.reverse(); // Reverse to get chronological order
-        console.log('DM conversation history:', conversationHistory);
       }
+      conversationHistory = messages.reverse(); // Reverse to get chronological order
+      console.log('DM conversation history:', conversationHistory);
 
       // Get AI response from GROK with conversation context
       const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory);
