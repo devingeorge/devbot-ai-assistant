@@ -525,9 +525,13 @@ app.error((error) => {
 // Start the app
 (async () => {
   try {
-    // Connect to Redis (required)
+    // Connect to Redis (with fallback to mock)
     await redisService.connect();
-    console.log('✅ Redis connected successfully');
+    if (redisService.isMock) {
+      console.log('⚠️ Using mock Redis - integration features will be limited');
+    } else {
+      console.log('✅ Redis connected successfully');
+    }
 
     await app.start();
     console.log('⚡️ Slack AI Assistant is running!');
