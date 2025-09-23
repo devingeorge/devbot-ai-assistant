@@ -10,24 +10,28 @@ const app = new App({
   port: process.env.PORT || 3000
 });
 
-// GROK API integration function
-async function callGrokAPI(message, userId) {
+// GROK API integration function with conversation context
+async function callGrokAPI(message, userId, conversationHistory = []) {
   try {
     console.log('Calling GROK API with message:', message);
     console.log('XAI_API_KEY available:', !!process.env.XAI_API_KEY);
     
+    // Build messages array with conversation history
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are a helpful AI assistant integrated into Slack. Be concise and helpful in your responses. Maintain context from previous messages in the conversation.'
+      },
+      ...conversationHistory,
+      {
+        role: 'user',
+        content: message
+      }
+    ];
+    
     const requestBody = {
       model: 'grok-2',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a helpful AI assistant integrated into Slack. Be concise and helpful in your responses.'
-        },
-        {
-          role: 'user',
-          content: message
-        }
-      ],
+      messages: messages,
       max_tokens: 1000,
       temperature: 0.7
     };
@@ -50,6 +54,35 @@ async function callGrokAPI(message, userId) {
   }
 }
 
+// Helper function to get conversation history from thread
+async function getConversationHistory(client, channelId, threadTs) {
+  try {
+    const result = await client.conversations.replies({
+      channel: channelId,
+      ts: threadTs,
+      limit: 20 // Get last 20 messages for context
+    });
+    
+    const messages = [];
+    for (const message of result.messages) {
+      // Skip the first message (original mention) and bot messages
+      if (message.ts === threadTs || message.bot_id) continue;
+      
+      // Determine role based on whether it's from a bot or user
+      const role = message.bot_id ? 'assistant' : 'user';
+      messages.push({
+        role: role,
+        content: message.text
+      });
+    }
+    
+    return messages;
+  } catch (error) {
+    console.error('Error getting conversation history:', error);
+    return [];
+  }
+}
+
 // Listen to messages that mention the bot
 app.event('app_mention', async ({ event, say, client }) => {
   try {
@@ -67,10 +100,16 @@ app.event('app_mention', async ({ event, say, client }) => {
       ts: event.ts
     });
 
-    // Get AI response from GROK
-    const aiResponse = await callGrokAPI(messageText, event.user);
+    // Get conversation history if this is a thread reply
+    let conversationHistory = [];
+    if (event.thread_ts) {
+      conversationHistory = await getConversationHistory(client, event.channel, event.thread_ts);
+    }
+
+    // Get AI response from GROK with conversation context
+    const aiResponse = await callGrokAPI(messageText, event.user, conversationHistory);
     
-    // Reply with the AI response
+    // Reply with the AI response in the same thread
     await say({
       text: aiResponse,
       thread_ts: event.ts
@@ -130,8 +169,31 @@ app.event('message', async ({ event, say, client }) => {
         ts: event.ts
       });
 
-      // Get AI response from GROK
-      const aiResponse = await callGrokAPI(event.text, event.user);
+      // Get conversation history for DMs (use channel as thread)
+      let conversationHistory = [];
+      if (event.thread_ts) {
+        conversationHistory = await getConversationHistory(client, event.channel, event.thread_ts);
+      } else {
+        // For DMs without threads, get recent message history
+        const result = await client.conversations.history({
+          channel: event.channel,
+          limit: 10
+        });
+        
+        const messages = [];
+        for (const message of result.messages) {
+          if (message.ts === event.ts || message.bot_id) continue;
+          const role = message.bot_id ? 'assistant' : 'user';
+          messages.push({
+            role: role,
+            content: message.text
+          });
+        }
+        conversationHistory = messages.reverse(); // Reverse to get chronological order
+      }
+
+      // Get AI response from GROK with conversation context
+      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory);
       
       // Reply with the AI response
       await say(aiResponse);
