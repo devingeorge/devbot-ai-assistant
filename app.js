@@ -9,7 +9,12 @@ const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: false,
-  port: process.env.PORT || 3000
+  port: process.env.PORT || 3000,
+  installationStore: {
+    storeInstallation: redisService.saveInstallation.bind(redisService),
+    fetchInstallation: redisService.getInstallation.bind(redisService),
+    deleteInstallation: redisService.deleteInstallation.bind(redisService),
+  }
 });
 
 // GROK API integration function with conversation context and integration support

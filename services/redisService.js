@@ -84,54 +84,63 @@ class RedisService {
     }
   }
 
-  // Installation Management
-  async saveInstallation(teamId, installationData) {
+  // Slack Installation Store Implementation
+  async saveInstallation(installation, isEnterpriseInstall) {
     if (this.isMock) {
-      console.log(`Mock Redis - saved installation for team: ${teamId}`);
-      return true;
+      console.log(`Mock Redis - saved installation for ${isEnterpriseInstall ? 'enterprise' : 'team'}`);
+      return Promise.resolve();
     }
     
     try {
-      const key = `installation:${teamId}`;
-      await this.client.setex(key, 86400 * 30, JSON.stringify(installationData)); // 30 days TTL
-      console.log(`Saved installation for team: ${teamId}`);
-      return true;
+      const key = isEnterpriseInstall 
+        ? `installation:${installation.enterprise.id}`
+        : `installation:${installation.team.id}`;
+      
+      await this.client.setex(key, 86400 * 30, JSON.stringify(installation)); // 30 days TTL
+      console.log(`Saved installation for ${isEnterpriseInstall ? 'enterprise' : 'team'}: ${key}`);
+      return Promise.resolve();
     } catch (error) {
       console.error('Error saving installation:', error);
-      return false;
+      return Promise.reject(error);
     }
   }
 
-  async getInstallation(teamId) {
+  async getInstallation(query, isEnterpriseInstall) {
     if (this.isMock) {
-      console.log(`Mock Redis - getting installation for team: ${teamId}`);
-      return null;
+      console.log(`Mock Redis - getting installation for ${isEnterpriseInstall ? 'enterprise' : 'team'}`);
+      return Promise.resolve(undefined);
     }
     
     try {
-      const key = `installation:${teamId}`;
+      const key = isEnterpriseInstall 
+        ? `installation:${query.enterpriseId}`
+        : `installation:${query.teamId}`;
+      
       const data = await this.client.get(key);
-      return data ? JSON.parse(data) : null;
+      return Promise.resolve(data ? JSON.parse(data) : undefined);
     } catch (error) {
       console.error('Error getting installation:', error);
-      return null;
+      return Promise.reject(error);
     }
   }
 
-  async deleteInstallation(teamId) {
+  async deleteInstallation(query, isEnterpriseInstall) {
     if (this.isMock) {
-      console.log(`Mock Redis - deleted installation for team: ${teamId}`);
-      return true;
+      console.log(`Mock Redis - deleted installation for ${isEnterpriseInstall ? 'enterprise' : 'team'}`);
+      return Promise.resolve();
     }
     
     try {
-      const key = `installation:${teamId}`;
+      const key = isEnterpriseInstall 
+        ? `installation:${query.enterpriseId}`
+        : `installation:${query.teamId}`;
+      
       await this.client.del(key);
-      console.log(`Deleted installation for team: ${teamId}`);
-      return true;
+      console.log(`Deleted installation for ${isEnterpriseInstall ? 'enterprise' : 'team'}: ${key}`);
+      return Promise.resolve();
     } catch (error) {
       console.error('Error deleting installation:', error);
-      return false;
+      return Promise.reject(error);
     }
   }
 
