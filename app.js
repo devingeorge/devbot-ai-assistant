@@ -33,6 +33,13 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
     const isJiraTicketRequest = message.toLowerCase().includes('create') && 
                                (message.toLowerCase().includes('jira') || message.toLowerCase().includes('ticket'));
     
+    console.log('Jira detection debug:', {
+      message: message,
+      isJiraTicketRequest: isJiraTicketRequest,
+      availableIntegrations: availableIntegrations,
+      teamId: teamId
+    });
+    
     if (isJiraTicketRequest && availableIntegrations.includes('jira')) {
       console.log('Detected Jira ticket creation request');
       
