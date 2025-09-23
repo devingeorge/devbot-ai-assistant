@@ -15,8 +15,8 @@ async function callGrokAPI(message, userId) {
   try {
     // Note: You'll need to replace this with the actual GROK API endpoint and format
     // This is a placeholder structure
-    const response = await axios.post('https://api.grok.com/v1/chat/completions', {
-      model: 'grok-beta',
+    const response = await axios.post('https://api.x.ai/v1/chat/completions', {
+      model: 'grok-2-1212',
       messages: [
         {
           role: 'system',
@@ -31,7 +31,7 @@ async function callGrokAPI(message, userId) {
       temperature: 0.7
     }, {
       headers: {
-        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+        'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
         'Content-Type': 'application/json'
       }
     });

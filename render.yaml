@@ -10,7 +10,7 @@ services:
         sync: false
       - key: SLACK_SIGNING_SECRET
         sync: false
-      - key: GROK_API_KEY
+      - key: XAI_API_KEY
         sync: false
       - key: PORT
         value: 10000
