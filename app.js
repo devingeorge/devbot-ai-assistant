@@ -204,10 +204,16 @@ app.command('/ai', async ({ command, ack, say, respond }) => {
 });
 
 // Listen to AI Assistant thread started events
-app.event('assistant_thread_started', async ({ event, say, client }) => {
+app.event('assistant_thread_started', async ({ event, client }) => {
   try {
     console.log('AI Assistant thread started:', event);
-    await say('Hello! How can I help you today?');
+    
+    // Post a welcome message in the AI Assistant thread
+    await client.chat.postMessage({
+      channel: event.channel,
+      thread_ts: event.thread_ts,
+      text: 'Hello! How can I help you today?'
+    });
   } catch (error) {
     console.error('Error handling assistant thread started:', error);
   }
