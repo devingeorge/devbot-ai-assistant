@@ -12,5 +12,12 @@ services:
         sync: false
       - key: XAI_API_KEY
         sync: false
+      - key: REDIS_URL
+        sync: false
       - key: PORT
         value: 10000
+
+  - type: redis
+    name: devbot-ai-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru

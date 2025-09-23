@@ -1,5 +1,7 @@
 const { App } = require('@slack/bolt');
 const axios = require('axios');
+const redisService = require('./services/redisService');
+const integrationService = require('./services/integrationService');
 require('dotenv').config();
 
 // Initialize your app with your bot token and signing secret
@@ -10,17 +12,30 @@ const app = new App({
   port: process.env.PORT || 3000
 });
 
-// GROK API integration function with conversation context
-async function callGrokAPI(message, userId, conversationHistory = []) {
+// GROK API integration function with conversation context and integration support
+async function callGrokAPI(message, userId, conversationHistory = [], teamId = null) {
   try {
     console.log('Calling GROK API with message:', message);
     console.log('XAI_API_KEY available:', !!process.env.XAI_API_KEY);
+    
+    // Get available integrations for this team
+    let availableIntegrations = [];
+    if (teamId) {
+      availableIntegrations = await redisService.listIntegrations(teamId);
+    }
+    
+    // Build system prompt with integration capabilities
+    let systemPrompt = 'You are a helpful AI assistant integrated into Slack. Be concise and helpful in your responses. Maintain context from previous messages in the conversation.';
+    
+    if (availableIntegrations.length > 0) {
+      systemPrompt += `\n\nYou have access to the following integrations: ${availableIntegrations.join(', ')}. When users ask about creating tickets, searching issues, or other integration tasks, you can help them with these tools.`;
+    }
     
     // Build messages array with conversation history
     const messages = [
       {
         role: 'system',
-        content: 'You are a helpful AI assistant integrated into Slack. Be concise and helpful in your responses. Maintain context from previous messages in the conversation.'
+        content: systemPrompt
       },
       ...conversationHistory,
       {
@@ -306,6 +321,155 @@ app.action('help_button', async ({ ack, say }) => {
   await say('I\'m an AI assistant powered by GROK! I can help you with questions, provide information, and assist with various tasks. Just ask me anything!');
 });
 
+// Integration management commands
+app.command('/setup-jira', async ({ command, ack, respond, client }) => {
+  await ack();
+  
+  try {
+    const teamId = command.team_id;
+    
+    // Send a modal for Jira setup
+    await client.views.open({
+      trigger_id: command.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'jira_setup',
+        title: {
+          type: 'plain_text',
+          text: 'Setup Jira Integration'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Save'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Configure your Jira integration credentials:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'jira_url',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'url',
+              placeholder: {
+                type: 'plain_text',
+                text: 'https://yourcompany.atlassian.net'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Jira Base URL'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'jira_username',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'username',
+              placeholder: {
+                type: 'plain_text',
+                text: 'your.email@company.com'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Jira Username/Email'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'jira_token',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'token',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Your Jira API Token'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Jira API Token'
+            }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening Jira setup modal:', error);
+    await respond('Sorry, there was an error opening the setup form. Please try again.');
+  }
+});
+
+// Handle Jira setup modal submission
+app.view('jira_setup', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team.id;
+    const values = view.state.values;
+    
+    const credentials = {
+      baseUrl: values.jira_url.url.value,
+      username: values.jira_username.username.value,
+      apiToken: values.jira_token.token.value
+    };
+    
+    // Validate credentials
+    const isValid = await integrationService.validateCredentials('jira', credentials);
+    
+    if (isValid) {
+      // Save credentials
+      await redisService.saveCredentials(teamId, 'jira', credentials);
+      
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '✅ Jira integration configured successfully! You can now ask me to create tickets, search issues, and more.'
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Invalid Jira credentials. Please check your URL, username, and API token and try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing Jira setup:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error setting up Jira integration. Please try again.'
+    });
+  }
+});
+
+// List integrations command
+app.command('/integrations', async ({ command, ack, respond }) => {
+  await ack();
+  
+  try {
+    const teamId = command.team_id;
+    const integrations = await redisService.listIntegrations(teamId);
+    
+    if (integrations.length === 0) {
+      await respond('No integrations configured yet. Use `/setup-jira` to configure Jira integration.');
+    } else {
+      await respond(`Configured integrations: ${integrations.join(', ')}`);
+    }
+  } catch (error) {
+    console.error('Error listing integrations:', error);
+    await respond('Sorry, there was an error listing integrations.');
+  }
+});
+
 // Add request logging middleware
 app.use(async ({ next }) => {
   console.log('Processing Slack request...');
@@ -321,8 +485,22 @@ app.error((error) => {
 // Start the app
 (async () => {
   try {
+    // Connect to Redis
+    const redisConnected = await redisService.connect();
+    if (redisConnected) {
+      console.log('✅ Redis connected successfully');
+    } else {
+      console.log('⚠️ Redis connection failed - continuing without Redis');
+    }
+
     await app.start();
     console.log('⚡️ Slack AI Assistant is running!');
+    console.log('Environment check:');
+    console.log('- SLACK_BOT_TOKEN:', process.env.SLACK_BOT_TOKEN ? 'Set' : 'Missing');
+    console.log('- SLACK_SIGNING_SECRET:', process.env.SLACK_SIGNING_SECRET ? 'Set' : 'Missing');
+    console.log('- XAI_API_KEY:', process.env.XAI_API_KEY ? 'Set' : 'Missing');
+    console.log('- REDIS_URL:', process.env.REDIS_URL ? 'Set' : 'Missing');
+    console.log('- PORT:', process.env.PORT || 3000);
   } catch (error) {
     console.error('Failed to start the app:', error);
     process.exit(1);
