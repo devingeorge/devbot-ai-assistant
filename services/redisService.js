@@ -8,24 +8,31 @@ class RedisService {
 
   async connect() {
     try {
+      // Skip Redis connection if no URL is provided (for local development)
+      if (!process.env.REDIS_URL) {
+        console.log('⚠️ No REDIS_URL provided - Redis features disabled');
+        this.isConnected = false;
+        return false;
+      }
+
       this.client = createClient({
-        url: process.env.REDIS_URL || 'redis://localhost:6379'
+        url: process.env.REDIS_URL
       });
 
       this.client.on('error', (err) => {
-        console.error('Redis Client Error:', err);
+        console.error('Redis Client Error:', err.message);
         this.isConnected = false;
       });
 
       this.client.on('connect', () => {
-        console.log('Redis Client Connected');
+        console.log('✅ Redis Client Connected');
         this.isConnected = true;
       });
 
       await this.client.connect();
       return true;
     } catch (error) {
-      console.error('Failed to connect to Redis:', error);
+      console.error('Failed to connect to Redis:', error.message);
       this.isConnected = false;
       return false;
     }

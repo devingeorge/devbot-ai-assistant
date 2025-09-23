@@ -280,7 +280,7 @@ app.event('app_home_opened', async ({ event, client }) => {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Welcome to your AI Assistant! 🤖*\n\nI can help you with various tasks. Here are some ways to interact with me:\n\n• *Mention me* in any channel: `@AI Assistant <your question>`\n• *Use the slash command*: `/ai <your question>`\n• *Send me a direct message* with your questions\n\nWhat would you like to know?'
+              text: '*Welcome to AI Assistant!* 🤖\n\nI\'m your intelligent AI assistant powered by GROK. I can help you with questions, provide information, and assist with various tasks.'
             }
           },
           {
@@ -290,7 +290,17 @@ app.event('app_home_opened', async ({ event, client }) => {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Quick Actions:*'
+              text: '*Available Commands:*\n• `/ai <question>` - Ask me anything\n• `/integrations` - List configured integrations\n• Mention me in channels: `@AI Assistant help`'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Integrations:*\nConfigure integrations to extend my capabilities:'
             }
           },
           {
@@ -300,10 +310,18 @@ app.event('app_home_opened', async ({ event, client }) => {
                 type: 'button',
                 text: {
                   type: 'plain_text',
-                  text: 'Help'
+                  text: '🔧 Setup Jira'
                 },
-                action_id: 'help_button',
+                action_id: 'setup_jira_button',
                 style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '❓ Help'
+                },
+                action_id: 'help_button'
               }
             ]
           }
@@ -321,16 +339,14 @@ app.action('help_button', async ({ ack, say }) => {
   await say('I\'m an AI assistant powered by GROK! I can help you with questions, provide information, and assist with various tasks. Just ask me anything!');
 });
 
-// Integration management commands
-app.command('/setup-jira', async ({ command, ack, respond, client }) => {
+// Jira setup button handler
+app.action('setup_jira_button', async ({ ack, body, client }) => {
   await ack();
   
   try {
-    const teamId = command.team_id;
-    
     // Send a modal for Jira setup
     await client.views.open({
-      trigger_id: command.trigger_id,
+      trigger_id: body.trigger_id,
       view: {
         type: 'modal',
         callback_id: 'jira_setup',
@@ -407,7 +423,10 @@ app.command('/setup-jira', async ({ command, ack, respond, client }) => {
     });
   } catch (error) {
     console.error('Error opening Jira setup modal:', error);
-    await respond('Sorry, there was an error opening the setup form. Please try again.');
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error opening the setup form. Please try again.'
+    });
   }
 });
 
