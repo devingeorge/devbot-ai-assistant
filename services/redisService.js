@@ -15,8 +15,14 @@ class RedisService {
         return false;
       }
 
+      console.log('Attempting to connect to Redis:', process.env.REDIS_URL);
+
       this.client = createClient({
-        url: process.env.REDIS_URL
+        url: process.env.REDIS_URL,
+        socket: {
+          connectTimeout: 5000,
+          lazyConnect: true
+        }
       });
 
       this.client.on('error', (err) => {
@@ -29,10 +35,17 @@ class RedisService {
         this.isConnected = true;
       });
 
-      await this.client.connect();
+      // Try to connect with timeout
+      const connectPromise = this.client.connect();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout')), 10000)
+      );
+
+      await Promise.race([connectPromise, timeoutPromise]);
       return true;
     } catch (error) {
       console.error('Failed to connect to Redis:', error.message);
+      console.log('⚠️ Continuing without Redis - integration features will be limited');
       this.isConnected = false;
       return false;
     }
