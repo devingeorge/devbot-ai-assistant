@@ -7,7 +7,12 @@ const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: false,
-  port: process.env.PORT || 3000
+  port: process.env.PORT || 3000,
+  endpoints: {
+    events: '/slack/events',
+    interactive: '/slack/interactive',
+    commands: '/slack/commands'
+  }
 });
 
 // GROK API integration function
@@ -37,9 +42,11 @@ async function callGrokAPI(message, userId) {
       }
     });
 
+    console.log('GROK API Response:', response.data);
     return response.data.choices[0].message.content;
   } catch (error) {
     console.error('GROK API Error:', error.response?.data || error.message);
+    console.error('Full error:', error);
     throw new Error('Failed to get AI response');
   }
 }
@@ -71,8 +78,9 @@ app.event('app_mention', async ({ event, say, client }) => {
     });
   } catch (error) {
     console.error('Error processing mention:', error);
+    console.error('Error details:', error.message);
     await say({
-      text: 'Sorry, I encountered an error processing your request. Please try again.',
+      text: `Sorry, I encountered an error: ${error.message}. Please try again.`,
       thread_ts: event.ts
     });
   }
