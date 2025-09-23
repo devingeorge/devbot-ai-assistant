@@ -29,6 +29,35 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       availableIntegrations = await redisService.listIntegrations(teamId);
     }
     
+    // Check if this is a Jira ticket creation request
+    const isJiraTicketRequest = message.toLowerCase().includes('create') && 
+                               (message.toLowerCase().includes('jira') || message.toLowerCase().includes('ticket'));
+    
+    if (isJiraTicketRequest && availableIntegrations.includes('jira')) {
+      console.log('Detected Jira ticket creation request');
+      
+      // Extract ticket details from the message
+      const ticketSummary = message.replace(/create.*?(?:jira\s+)?ticket\s*(?:about|for)?\s*/i, '').trim() || 'Ticket created via Slack AI Assistant';
+      
+      try {
+        // Create the Jira ticket
+        const result = await integrationService.handleIntegration('jira', 'create_ticket', {
+          summary: ticketSummary,
+          description: `Ticket created via Slack AI Assistant\n\nOriginal request: ${message}`,
+          issueType: 'Task'
+        }, teamId);
+        
+        if (result.success) {
+          return `✅ Created Jira ticket ${result.ticketKey}: ${result.message}\n\n🔗 ${result.ticketUrl}`;
+        } else {
+          return `❌ Failed to create Jira ticket: ${result.error || 'Unknown error'}`;
+        }
+      } catch (error) {
+        console.error('Error creating Jira ticket:', error);
+        return `❌ Failed to create Jira ticket: ${error.message}`;
+      }
+    }
+    
     // Build system prompt with integration capabilities
     let systemPrompt = 'You are a helpful AI assistant integrated into Slack. Be concise and helpful in your responses. Maintain context from previous messages in the conversation.';
     
@@ -128,7 +157,7 @@ app.event('app_mention', async ({ event, say, client }) => {
     }
 
     // Get AI response from GROK with conversation context
-    const aiResponse = await callGrokAPI(messageText, event.user, conversationHistory);
+    const aiResponse = await callGrokAPI(messageText, event.user, conversationHistory, event.team);
     
     // Reply with the AI response in the same thread
     await say({
@@ -161,7 +190,7 @@ app.command('/ai', async ({ command, ack, say, respond }) => {
     await say('Thinking... 🤔');
 
     // Get AI response from GROK
-    const aiResponse = await callGrokAPI(query, command.user_id);
+    const aiResponse = await callGrokAPI(query, command.user_id, [], command.team_id);
     
     // Reply with the AI response
     await respond({
@@ -217,7 +246,7 @@ app.event('message', async ({ event, say, client }) => {
       conversationHistory = await getConversationHistory(client, event.channel, event.thread_ts);
 
       // Get AI response from GROK with conversation context
-      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory);
+      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, event.team);
       
       // Reply with the AI response in the same thread
       await say({
@@ -262,7 +291,7 @@ app.event('message', async ({ event, say, client }) => {
       console.log('DM conversation history:', conversationHistory);
 
       // Get AI response from GROK with conversation context
-      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory);
+      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, event.team);
       
       // Reply with the AI response
       await say(aiResponse);
