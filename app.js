@@ -335,11 +335,16 @@ app.event('app_mention', async ({ event, say, client }) => {
       return;
     }
 
-    // Show typing indicator
-    await client.conversations.mark({
-      channel: event.channel,
-      ts: event.ts
-    });
+    // Show typing indicator (with fallback)
+    try {
+      await client.conversations.mark({
+        channel: event.channel,
+        ts: event.ts
+      });
+    } catch (markError) {
+      console.log('Could not mark conversation as read:', markError.message);
+      // Continue without marking - not critical
+    }
 
     // Get conversation history if this is a thread reply
     let conversationHistory = [];
