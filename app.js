@@ -227,7 +227,9 @@ app.event('assistant_thread_started', async ({ event, client }) => {
     
     // Get suggested prompts for this team
     const prompts = await redisService.getAllSuggestedPrompts(teamId);
+    console.log('Retrieved prompts for team:', teamId, prompts);
     const enabledPrompts = prompts.filter(prompt => prompt.enabled !== false);
+    console.log('Enabled prompts:', enabledPrompts);
     
     // Set suggested prompts if any exist
     if (enabledPrompts.length > 0) {
@@ -238,18 +240,24 @@ app.event('assistant_thread_started', async ({ event, client }) => {
         }));
         
         console.log('Setting suggested prompts:', suggestedPrompts);
+        console.log('Channel ID:', channelId);
+        console.log('Thread TS:', event.assistant_thread.thread_ts);
         
-        await client.assistant.threads.setSuggestedPrompts({
+        // Try the correct API method
+        const result = await client.assistant.threads.setSuggestedPrompts({
           channel_id: channelId,
           thread_ts: event.assistant_thread.thread_ts,
           prompts: suggestedPrompts
         });
         
-        console.log('Successfully set suggested prompts for thread');
+        console.log('Successfully set suggested prompts for thread:', result);
       } catch (promptError) {
         console.error('Error setting suggested prompts:', promptError);
+        console.error('Full error details:', promptError.response?.data || promptError.message);
         // Continue with welcome message even if prompts fail
       }
+    } else {
+      console.log('No enabled prompts found for team:', teamId);
     }
     
     // Post a welcome message in the AI Assistant thread
