@@ -221,6 +221,36 @@ app.event('assistant_thread_started', async ({ event, client }) => {
       return;
     }
     
+    // Get team ID from the event context
+    const teamId = event.team || 'unknown';
+    
+    // Get suggested prompts for this team
+    const prompts = await redisService.getAllSuggestedPrompts(teamId);
+    const enabledPrompts = prompts.filter(prompt => prompt.enabled !== false);
+    
+    // Set suggested prompts if any exist
+    if (enabledPrompts.length > 0) {
+      try {
+        const suggestedPrompts = enabledPrompts.map(prompt => ({
+          title: prompt.buttonText,
+          prompt: prompt.messageText
+        }));
+        
+        console.log('Setting suggested prompts:', suggestedPrompts);
+        
+        await client.assistant.threads.setSuggestedPrompts({
+          channel_id: event.channel,
+          thread_ts: event.thread_ts,
+          prompts: suggestedPrompts
+        });
+        
+        console.log('Successfully set suggested prompts for thread');
+      } catch (promptError) {
+        console.error('Error setting suggested prompts:', promptError);
+        // Continue with welcome message even if prompts fail
+      }
+    }
+    
     // Post a welcome message in the AI Assistant thread
     await client.chat.postMessage({
       channel: event.channel,
@@ -358,6 +388,45 @@ app.event('app_home_opened', async ({ event, client }) => {
             }
           },
           {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Suggested Prompts:*\nCreate quick-start prompts that appear as buttons in the AI Assistant pane:'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '➕ Add Prompt'
+                },
+                action_id: 'add_suggested_prompt_button',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '📋 View Prompts'
+                },
+                action_id: 'view_suggested_prompts_button'
+              }
+            ]
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Integrations:*\nConfigure integrations to extend my capabilities:'
+            }
+          },
+          {
             type: 'actions',
             elements: [
               {
@@ -391,6 +460,156 @@ app.event('app_home_opened', async ({ event, client }) => {
 app.action('help_button', async ({ ack, say }) => {
   await ack();
   await say('I\'m an AI assistant powered by GROK! I can help you with questions, provide information, and assist with various tasks. Just ask me anything!');
+});
+
+// Add suggested prompt button handler
+app.action('add_suggested_prompt_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'add_suggested_prompt',
+        title: {
+          type: 'plain_text',
+          text: 'Add Suggested Prompt'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Add Prompt'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Create a suggested prompt that will appear as a button in the AI Assistant pane.'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'prompt_button_text',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'button_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "Create a bug report"'
+              },
+              max_length: 75
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Button Text'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'prompt_message',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'message_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "Create a Jira ticket for a bug report with the following details: [describe the issue]"'
+              },
+              max_length: 2000
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Message to Send'
+            }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening add prompt modal:', error);
+  }
+});
+
+// View suggested prompts button handler
+app.action('view_suggested_prompts_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const prompts = await redisService.getAllSuggestedPrompts(teamId);
+    
+    const blocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Suggested Prompts* (${prompts.length} total)`
+        }
+      },
+      {
+        type: 'divider'
+      }
+    ];
+    
+    if (prompts.length === 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'No suggested prompts created yet. Click "Add Prompt" to create your first one!'
+        }
+      });
+    } else {
+      prompts.forEach((prompt, index) => {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*${prompt.buttonText}*\n_${prompt.messageText.substring(0, 100)}${prompt.messageText.length > 100 ? '...' : ''}_`
+          },
+          accessory: {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: 'Edit'
+            },
+            action_id: `edit_prompt_${prompt.id}`,
+            value: prompt.id
+          }
+        });
+        
+        if (index < prompts.length - 1) {
+          blocks.push({
+            type: 'divider'
+          });
+        }
+      });
+    }
+    
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'view_suggested_prompts',
+        title: {
+          type: 'plain_text',
+          text: 'Suggested Prompts'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Close'
+        },
+        blocks: blocks
+      }
+    });
+  } catch (error) {
+    console.error('Error opening view prompts modal:', error);
+  }
 });
 
 // Jira setup button handler
@@ -545,6 +764,233 @@ app.view('jira_setup', async ({ ack, body, view, client }) => {
     await client.chat.postMessage({
       channel: body.user.id,
       text: 'Sorry, there was an error setting up Jira integration. Please try again.'
+    });
+  }
+});
+
+// Add suggested prompt modal submission handler
+app.view('add_suggested_prompt', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const values = view.state.values;
+    
+    const buttonText = values.prompt_button_text.button_text.value;
+    const messageText = values.prompt_message.message_text.value;
+    
+    if (!buttonText || !messageText) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Both button text and message text are required. Please try again.'
+      });
+      return;
+    }
+    
+    const promptData = {
+      buttonText: buttonText.trim(),
+      messageText: messageText.trim(),
+      enabled: true
+    };
+    
+    const promptId = await redisService.saveSuggestedPrompt(teamId, promptData);
+    
+    if (promptId) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Suggested prompt "${buttonText}" created successfully! It will now appear as a button in the AI Assistant pane.`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to save suggested prompt. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing suggested prompt creation:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error creating the suggested prompt. Please try again.'
+    });
+  }
+});
+
+// Edit suggested prompt action handler
+app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const promptId = action.value;
+    const prompt = await redisService.getSuggestedPrompt(teamId, promptId);
+    
+    if (!prompt) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Prompt not found. It may have been deleted.'
+      });
+      return;
+    }
+    
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'edit_suggested_prompt',
+        title: {
+          type: 'plain_text',
+          text: 'Edit Suggested Prompt'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Update Prompt'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        private_metadata: promptId,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Edit your suggested prompt:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'prompt_button_text',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'button_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "Create a bug report"'
+              },
+              max_length: 75,
+              initial_value: prompt.buttonText
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Button Text'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'prompt_message',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'message_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "Create a Jira ticket for a bug report with the following details: [describe the issue]"'
+              },
+              max_length: 2000,
+              initial_value: prompt.messageText
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Message to Send'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🗑️ Delete Prompt'
+                },
+                action_id: 'delete_prompt_button',
+                style: 'danger',
+                value: promptId
+              }
+            ]
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening edit prompt modal:', error);
+  }
+});
+
+// Edit suggested prompt modal submission handler
+app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const promptId = view.private_metadata;
+    const values = view.state.values;
+    
+    const buttonText = values.prompt_button_text.button_text.value;
+    const messageText = values.prompt_message.message_text.value;
+    
+    if (!buttonText || !messageText) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Both button text and message text are required. Please try again.'
+      });
+      return;
+    }
+    
+    const updates = {
+      buttonText: buttonText.trim(),
+      messageText: messageText.trim()
+    };
+    
+    const success = await redisService.updateSuggestedPrompt(teamId, promptId, updates);
+    
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Suggested prompt "${buttonText}" updated successfully!`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to update suggested prompt. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing suggested prompt update:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error updating the suggested prompt. Please try again.'
+    });
+  }
+});
+
+// Delete suggested prompt action handler
+app.action('delete_prompt_button', async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const promptId = action.value;
+    
+    const success = await redisService.deleteSuggestedPrompt(teamId, promptId);
+    
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '✅ Suggested prompt deleted successfully!'
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to delete suggested prompt. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting suggested prompt:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error deleting the suggested prompt. Please try again.'
     });
   }
 });

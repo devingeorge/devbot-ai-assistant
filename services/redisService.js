@@ -244,6 +244,122 @@ class RedisService {
     }
   }
 
+  // Suggested Prompts Management
+  async saveSuggestedPrompt(teamId, promptData) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot save suggested prompt.');
+      return false;
+    }
+    try {
+      const promptId = promptData.id || `prompt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const key = `suggested_prompts:${teamId}:${promptId}`;
+      
+      const promptWithId = {
+        ...promptData,
+        id: promptId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      await this.client.setEx(key, 86400 * 365, JSON.stringify(promptWithId)); // 1 year TTL
+      console.log(`Saved suggested prompt ${promptId} for team: ${teamId}`);
+      return promptId;
+    } catch (error) {
+      console.error('Error saving suggested prompt:', error);
+      return false;
+    }
+  }
+
+  async getSuggestedPrompt(teamId, promptId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot get suggested prompt.');
+      return null;
+    }
+    try {
+      const key = `suggested_prompts:${teamId}:${promptId}`;
+      const data = await this.client.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('Error getting suggested prompt:', error);
+      return null;
+    }
+  }
+
+  async getAllSuggestedPrompts(teamId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot get suggested prompts.');
+      return [];
+    }
+    try {
+      const pattern = `suggested_prompts:${teamId}:*`;
+      const keys = await this.client.keys(pattern);
+      
+      if (keys.length === 0) {
+        return [];
+      }
+      
+      const prompts = [];
+      for (const key of keys) {
+        const data = await this.client.get(key);
+        if (data) {
+          prompts.push(JSON.parse(data));
+        }
+      }
+      
+      // Sort by creation date (newest first)
+      return prompts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    } catch (error) {
+      console.error('Error getting all suggested prompts:', error);
+      return [];
+    }
+  }
+
+  async updateSuggestedPrompt(teamId, promptId, updates) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot update suggested prompt.');
+      return false;
+    }
+    try {
+      const key = `suggested_prompts:${teamId}:${promptId}`;
+      const existingData = await this.client.get(key);
+      
+      if (!existingData) {
+        return false;
+      }
+      
+      const existingPrompt = JSON.parse(existingData);
+      const updatedPrompt = {
+        ...existingPrompt,
+        ...updates,
+        id: promptId, // Ensure ID doesn't change
+        updatedAt: new Date().toISOString()
+      };
+      
+      await this.client.setEx(key, 86400 * 365, JSON.stringify(updatedPrompt)); // 1 year TTL
+      console.log(`Updated suggested prompt ${promptId} for team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error updating suggested prompt:', error);
+      return false;
+    }
+  }
+
+  async deleteSuggestedPrompt(teamId, promptId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot delete suggested prompt.');
+      return false;
+    }
+    try {
+      const key = `suggested_prompts:${teamId}:${promptId}`;
+      await this.client.del(key);
+      console.log(`Deleted suggested prompt ${promptId} for team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting suggested prompt:', error);
+      return false;
+    }
+  }
+
   // Health check
   async healthCheck() {
     if (this.isMock) return true;
