@@ -554,7 +554,9 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client }) => {
   
   try {
     const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    console.log('View prompts - teamId:', teamId);
     const prompts = await redisService.getAllSuggestedPrompts(teamId);
+    console.log('View prompts - retrieved prompts:', prompts);
     
     const blocks = [
       {
@@ -579,11 +581,14 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client }) => {
       });
     } else {
       prompts.forEach((prompt, index) => {
+        const statusIcon = prompt.enabled === false ? '🔴' : '🟢';
+        const statusText = prompt.enabled === false ? 'Disabled' : 'Enabled';
+        
         blocks.push({
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `*${prompt.buttonText}* ${prompt.enabled === false ? '(Disabled)' : ''}\n_${prompt.messageText.substring(0, 100)}${prompt.messageText.length > 100 ? '...' : ''}_`
+            text: `${statusIcon} *${prompt.buttonText}* (${statusText})\n_${prompt.messageText.substring(0, 100)}${prompt.messageText.length > 100 ? '...' : ''}_`
           }
         });
         
@@ -648,6 +653,13 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client }) => {
     });
   } catch (error) {
     console.error('Error opening view prompts modal:', error);
+    console.error('Full error details:', error.response?.data || error.message);
+    
+    // Send error message to user
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: `❌ Error opening prompts view: ${error.message || 'Unknown error'}`
+    });
   }
 });
 
