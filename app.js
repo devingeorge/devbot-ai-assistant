@@ -530,8 +530,23 @@ app.event('message', async ({ event, say, client, context }) => {
         const channelAutoResponse = await checkChannelAutoResponse(event.channel, teamId);
         if (channelAutoResponse) {
           console.log('Channel auto-response matched:', channelAutoResponse.channelId);
-          await sendKeyPhraseResponse(client, event.channel, channelAutoResponse.responseText, event.ts);
-          return; // Skip AI processing
+          
+          // Show typing indicator
+          await client.conversations.mark({
+            channel: event.channel,
+            ts: event.ts
+          });
+          
+          // Get AI response from GROK
+          const aiResponse = await callGrokAPI(event.text, event.user, [], teamId);
+          
+          // Reply in thread
+          await client.chat.postMessage({
+            channel: event.channel,
+            text: aiResponse,
+            thread_ts: event.ts
+          });
+          return; // Skip further processing
         }
       }
     } catch (error) {
@@ -2072,37 +2087,18 @@ app.action('add_channel_auto_response_button', async ({ ack, body, client }) => 
           },
           {
             type: 'input',
-            block_id: 'channel_id',
+            block_id: 'channel_select',
             element: {
-              type: 'plain_text_input',
-              action_id: 'channel_text',
+              type: 'channels_select',
+              action_id: 'channel_select',
               placeholder: {
                 type: 'plain_text',
-                text: 'e.g., #general or C1234567890'
-              },
-              max_length: 100
+                text: 'Select a channel'
+              }
             },
             label: {
               type: 'plain_text',
-              text: 'Channel ID or Name'
-            }
-          },
-          {
-            type: 'input',
-            block_id: 'response_text',
-            element: {
-              type: 'plain_text_input',
-              action_id: 'response_text',
-              multiline: true,
-              placeholder: {
-                type: 'plain_text',
-                text: 'Plain text: "Thanks for sharing!"\n\nBlock Kit JSON:\n[{"type":"section","text":{"type":"mrkdwn","text":"*Thanks for sharing!* :thumbsup:"}}]'
-              },
-              max_length: 2000
-            },
-            label: {
-              type: 'plain_text',
-              text: 'Response (Plain Text or Block Kit JSON)'
+              text: 'Channel'
             }
           }
         ]
@@ -2121,20 +2117,18 @@ app.view('add_channel_auto_response', async ({ ack, body, view, client }) => {
     const teamId = body.team?.id || body.user?.team_id || 'unknown';
     const values = view.state.values;
     
-    const channelId = values.channel_id.channel_text.value;
-    const responseText = values.response_text.response_text.value;
+    const channelId = values.channel_select.channel_select.selected_channel;
     
-    if (!channelId || !responseText) {
+    if (!channelId) {
       await client.chat.postMessage({
         channel: body.user.id,
-        text: '❌ Both channel ID and response are required. Please try again.'
+        text: '❌ Please select a channel. Please try again.'
       });
       return;
     }
     
     const responseData = {
-      channelId: channelId.trim(),
-      responseText: responseText.trim(),
+      channelId: channelId,
       enabled: true
     };
     
@@ -2143,7 +2137,7 @@ app.view('add_channel_auto_response', async ({ ack, body, view, client }) => {
     if (responseId) {
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `✅ Channel auto-response created successfully!\n\nChannel: ${channelId}\nResponse: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`
+        text: `✅ Channel auto-response created successfully!\n\nChannel: <#${channelId}> will now receive AI responses in threads.`
       });
     } else {
       await client.chat.postMessage({
@@ -2200,7 +2194,7 @@ app.action('view_channel_auto_responses_button', async ({ ack, body, client }) =
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `${statusIcon} *${response.channelId}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+            text: `${statusIcon} *<#${response.channelId}>* (${statusText})\n_AI will respond in threads to messages in this channel_`
           }
         });
         
@@ -2320,39 +2314,19 @@ app.action(/^edit_channel_response_(.+)$/, async ({ ack, body, client, action })
           },
           {
             type: 'input',
-            block_id: 'channel_id',
+            block_id: 'channel_select',
             element: {
-              type: 'plain_text_input',
-              action_id: 'channel_text',
+              type: 'channels_select',
+              action_id: 'channel_select',
               placeholder: {
                 type: 'plain_text',
-                text: 'e.g., #general or C1234567890'
+                text: 'Select a channel'
               },
-              max_length: 100,
-              initial_value: response.channelId
+              initial_channel: response.channelId
             },
             label: {
               type: 'plain_text',
-              text: 'Channel ID or Name'
-            }
-          },
-          {
-            type: 'input',
-            block_id: 'response_text',
-            element: {
-              type: 'plain_text_input',
-              action_id: 'response_text',
-              multiline: true,
-              placeholder: {
-                type: 'plain_text',
-                text: 'Plain text: "Thanks for sharing!"\n\nBlock Kit JSON:\n[{"type":"section","text":{"type":"mrkdwn","text":"*Thanks for sharing!* :thumbsup:"}}]'
-              },
-              max_length: 2000,
-              initial_value: response.responseText
-            },
-            label: {
-              type: 'plain_text',
-              text: 'Response (Plain Text or Block Kit JSON)'
+              text: 'Channel'
             }
           }
         ]
@@ -2372,20 +2346,18 @@ app.view('edit_channel_auto_response', async ({ ack, body, view, client }) => {
     const responseId = view.private_metadata;
     const values = view.state.values;
     
-    const channelId = values.channel_id.channel_text.value;
-    const responseText = values.response_text.response_text.value;
+    const channelId = values.channel_select.channel_select.selected_channel;
     
-    if (!channelId || !responseText) {
+    if (!channelId) {
       await client.chat.postMessage({
         channel: body.user.id,
-        text: '❌ Both channel ID and response are required. Please try again.'
+        text: '❌ Please select a channel. Please try again.'
       });
       return;
     }
     
     const updates = {
-      channelId: channelId.trim(),
-      responseText: responseText.trim()
+      channelId: channelId
     };
     
     const success = await redisService.updateChannelAutoResponse(teamId, responseId, updates);
@@ -2425,7 +2397,7 @@ app.view('edit_channel_auto_response', async ({ ack, body, view, client }) => {
                 type: 'section',
                 text: {
                   type: 'mrkdwn',
-                  text: `${statusIcon} *${response.channelId}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+                  text: `${statusIcon} *<#${response.channelId}>* (${statusText})\n_AI will respond in threads to messages in this channel_`
                 }
               });
               
@@ -2495,7 +2467,7 @@ app.view('edit_channel_auto_response', async ({ ack, body, view, client }) => {
       
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `✅ Channel auto-response updated successfully!\n\nChannel: ${channelId}\nResponse: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`
+        text: `✅ Channel auto-response updated successfully!\n\nChannel: <#${channelId}> will now receive AI responses in threads.`
       });
     } else {
       await client.chat.postMessage({
