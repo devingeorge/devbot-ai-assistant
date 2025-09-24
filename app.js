@@ -612,7 +612,7 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client }) => {
               },
               action_id: `toggle_prompt_${prompt.id}`,
               value: prompt.id,
-              style: prompt.enabled === false ? 'primary' : 'default'
+              style: prompt.enabled === false ? 'primary' : undefined
             },
             {
               type: 'button',
