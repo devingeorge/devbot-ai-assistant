@@ -649,6 +649,63 @@ class RedisService {
     }
   }
 
+  // Salesforce Integration Management
+  async saveSalesforceTokens(teamId, userId, tokenData) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot save Salesforce tokens.');
+      return false;
+    }
+    try {
+      const key = `salesforce_tokens:${teamId}:${userId}`;
+      
+      const tokensWithMetadata = {
+        ...tokenData,
+        userId: userId,
+        teamId: teamId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      await this.client.set(key, JSON.stringify(tokensWithMetadata), 'EX', 86400 * 30); // 30 days TTL
+      console.log(`Saved Salesforce tokens for user ${userId} in team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error saving Salesforce tokens:', error);
+      return false;
+    }
+  }
+
+  async getSalesforceTokens(teamId, userId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot get Salesforce tokens.');
+      return null;
+    }
+    try {
+      const key = `salesforce_tokens:${teamId}:${userId}`;
+      const data = await this.client.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('Error getting Salesforce tokens:', error);
+      return null;
+    }
+  }
+
+  async deleteSalesforceTokens(teamId, userId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot delete Salesforce tokens.');
+      return false;
+    }
+    try {
+      const key = `salesforce_tokens:${teamId}:${userId}`;
+      await this.client.del(key);
+      console.log(`Deleted Salesforce tokens for user ${userId} in team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting Salesforce tokens:', error);
+      return false;
+    }
+  }
+
   // Health check
   async healthCheck() {
     if (this.isMock) return true;

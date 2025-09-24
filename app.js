@@ -2,6 +2,7 @@ const { App } = require('@slack/bolt');
 const axios = require('axios');
 const redisService = require('./services/redisService');
 const integrationService = require('./services/integrationService');
+const salesforceService = require('./services/salesforceService');
 require('dotenv').config();
 
 // Initialize your app with your bot token and signing secret
@@ -201,6 +202,180 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
   }
 }
 
+// Handle Salesforce requests
+async function handleSalesforceRequest(message, tokens, userId) {
+  try {
+    const lowerMessage = message.toLowerCase();
+    
+    // Check for Lead creation
+    if (lowerMessage.includes('create lead') || lowerMessage.includes('new lead')) {
+      const leadData = extractLeadData(message);
+      const result = await salesforceService.createLead(leadData, tokens.access_token);
+      
+      if (result.success) {
+        return `✅ Lead created successfully!\n\n**Lead ID:** ${result.id}\n**Link:** ${result.url}\n\nIs there anything else I can help you with?`;
+      } else {
+        return `❌ Failed to create lead: ${result.error}`;
+      }
+    }
+    
+    // Check for Opportunity creation
+    if (lowerMessage.includes('create opportunity') || lowerMessage.includes('new opportunity')) {
+      const opportunityData = extractOpportunityData(message);
+      const result = await salesforceService.createOpportunity(opportunityData, tokens.access_token);
+      
+      if (result.success) {
+        return `✅ Opportunity created successfully!\n\n**Opportunity ID:** ${result.id}\n**Link:** ${result.url}\n\nIs there anything else I can help you with?`;
+      } else {
+        return `❌ Failed to create opportunity: ${result.error}`;
+      }
+    }
+    
+    // Check for Account creation
+    if (lowerMessage.includes('create account') || lowerMessage.includes('new account')) {
+      const accountData = extractAccountData(message);
+      const result = await salesforceService.createAccount(accountData, tokens.access_token);
+      
+      if (result.success) {
+        return `✅ Account created successfully!\n\n**Account ID:** ${result.id}\n**Link:** ${result.url}\n\nIs there anything else I can help you with?`;
+      } else {
+        return `❌ Failed to create account: ${result.error}`;
+      }
+    }
+    
+    // Check for Case creation
+    if (lowerMessage.includes('create case') || lowerMessage.includes('new case')) {
+      const caseData = extractCaseData(message);
+      const result = await salesforceService.createCase(caseData, tokens.access_token);
+      
+      if (result.success) {
+        return `✅ Case created successfully!\n\n**Case ID:** ${result.id}\n**Link:** ${result.url}\n\nIs there anything else I can help you with?`;
+      } else {
+        return `❌ Failed to create case: ${result.error}`;
+      }
+    }
+    
+    // Check for Task creation
+    if (lowerMessage.includes('create task') || lowerMessage.includes('new task')) {
+      const taskData = extractTaskData(message);
+      const result = await salesforceService.createTask(taskData, tokens.access_token);
+      
+      if (result.success) {
+        return `✅ Task created successfully!\n\n**Task ID:** ${result.id}\n**Link:** ${result.url}\n\nIs there anything else I can help you with?`;
+      } else {
+        return `❌ Failed to create task: ${result.error}`;
+      }
+    }
+    
+    return null; // No Salesforce operation detected
+  } catch (error) {
+    console.error('Error handling Salesforce request:', error);
+    return `❌ Salesforce operation failed: ${error.message}`;
+  }
+}
+
+// Extract lead data from message
+function extractLeadData(message) {
+  const leadData = {
+    LastName: 'Lead from Slack',
+    Company: 'Unknown Company',
+    Status: 'Open - Not Contacted'
+  };
+  
+  // Try to extract company name
+  const companyMatch = message.match(/(?:for|at|company)\s+([A-Za-z0-9\s&.,-]+)/i);
+  if (companyMatch) {
+    leadData.Company = companyMatch[1].trim();
+  }
+  
+  // Try to extract contact name
+  const nameMatch = message.match(/(?:contact|person|lead)\s+([A-Za-z\s]+)/i);
+  if (nameMatch) {
+    leadData.LastName = nameMatch[1].trim();
+  }
+  
+  return leadData;
+}
+
+// Extract opportunity data from message
+function extractOpportunityData(message) {
+  const opportunityData = {
+    Name: 'Opportunity from Slack',
+    StageName: 'Prospecting',
+    CloseDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 30 days from now
+  };
+  
+  // Try to extract opportunity name
+  const nameMatch = message.match(/(?:opportunity|deal)\s+(?:for|about)\s+([A-Za-z0-9\s&.,-]+)/i);
+  if (nameMatch) {
+    opportunityData.Name = nameMatch[1].trim();
+  }
+  
+  // Try to extract amount
+  const amountMatch = message.match(/\$?([0-9,]+(?:\.[0-9]{2})?)\s*(?:k|thousand|million)?/i);
+  if (amountMatch) {
+    let amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+    if (message.toLowerCase().includes('k') || message.toLowerCase().includes('thousand')) {
+      amount *= 1000;
+    } else if (message.toLowerCase().includes('million')) {
+      amount *= 1000000;
+    }
+    opportunityData.Amount = amount;
+  }
+  
+  return opportunityData;
+}
+
+// Extract account data from message
+function extractAccountData(message) {
+  const accountData = {
+    Name: 'Account from Slack',
+    Type: 'Customer'
+  };
+  
+  // Try to extract account name
+  const nameMatch = message.match(/(?:account|company)\s+(?:for|named)\s+([A-Za-z0-9\s&.,-]+)/i);
+  if (nameMatch) {
+    accountData.Name = nameMatch[1].trim();
+  }
+  
+  return accountData;
+}
+
+// Extract case data from message
+function extractCaseData(message) {
+  const caseData = {
+    Subject: 'Case from Slack',
+    Status: 'New',
+    Priority: 'Medium'
+  };
+  
+  // Try to extract case subject
+  const subjectMatch = message.match(/(?:case|issue|problem)\s+(?:about|for)\s+([A-Za-z0-9\s&.,-]+)/i);
+  if (subjectMatch) {
+    caseData.Subject = subjectMatch[1].trim();
+  }
+  
+  return caseData;
+}
+
+// Extract task data from message
+function extractTaskData(message) {
+  const taskData = {
+    Subject: 'Task from Slack',
+    Status: 'Not Started',
+    Priority: 'Normal'
+  };
+  
+  // Try to extract task subject
+  const subjectMatch = message.match(/(?:task|reminder|follow-up)\s+(?:to|about|for)\s+([A-Za-z0-9\s&.,-]+)/i);
+  if (subjectMatch) {
+    taskData.Subject = subjectMatch[1].trim();
+  }
+  
+  return taskData;
+}
+
 // GROK API integration function with conversation context and integration support
 async function callGrokAPI(message, userId, conversationHistory = [], teamId = null) {
   try {
@@ -246,6 +421,21 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       } catch (error) {
         console.error('Error creating Jira ticket:', error);
         return `❌ Failed to create Jira ticket: ${error.message}`;
+      }
+    }
+    
+    // Check if this is a Salesforce request
+    const salesforceTokens = await redisService.getSalesforceTokens(teamId, userId);
+    if (salesforceTokens) {
+      console.log('Salesforce tokens found for user:', userId);
+      
+      // Set the Salesforce instance URL
+      salesforceService.setInstanceUrl(salesforceTokens.instance_url);
+      
+      // Check for Salesforce operations
+      const salesforceResult = await handleSalesforceRequest(message, salesforceTokens, userId);
+      if (salesforceResult) {
+        return salesforceResult;
       }
     }
     
@@ -675,6 +865,25 @@ app.event('app_home_opened', async ({ event, client }) => {
             text: {
               type: 'mrkdwn',
               text: '*Welcome to AI Assistant!* 🤖\n\nI\'m your intelligent AI assistant powered by GROK. I can help you with questions, provide information, and assist with various tasks.'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Salesforce Integration:*\nConnect your Salesforce org'
+            },
+            accessory: {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '🔗 Connect'
+              },
+              action_id: 'connect_salesforce_button',
+              value: 'connect_salesforce'
             }
           },
           {
@@ -3108,6 +3317,131 @@ app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
       channel: body.user.id,
       text: 'Sorry, there was an error saving your AI behavior settings. Please try again.'
     });
+  }
+});
+
+// Connect Salesforce button handler
+app.action('connect_salesforce_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const userId = body.user.id;
+    
+    // Check if user already has Salesforce connected
+    const existingTokens = await redisService.getSalesforceTokens(teamId, userId);
+    
+    if (existingTokens) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ You already have Salesforce connected!\n\n**Org:** ${existingTokens.instance_url}\n**Connected:** ${new Date(existingTokens.createdAt).toLocaleDateString()}\n\nTo disconnect, use the command: \`/disconnect-salesforce\``
+      });
+      return;
+    }
+    
+    // Generate OAuth URL
+    const clientId = process.env.SALESFORCE_CLIENT_ID;
+    const redirectUri = process.env.SALESFORCE_REDIRECT_URL;
+    
+    if (!clientId || !redirectUri) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Salesforce integration is not configured. Please contact your administrator.'
+      });
+      return;
+    }
+    
+    const oauthUrl = `https://login.salesforce.com/services/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=api+refresh_token+full&state=${teamId}:${userId}`;
+    
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: `🔗 **Connect to Salesforce**\n\nClick the link below to connect your Salesforce org:\n\n${oauthUrl}\n\nAfter connecting, you'll be able to:\n• Create leads, opportunities, and accounts\n• Update records and create tasks\n• Query your Salesforce data\n• Get AI-powered insights from your CRM data`
+    });
+  } catch (error) {
+    console.error('Error handling Salesforce connection:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error connecting to Salesforce. Please try again.'
+    });
+  }
+});
+
+// Salesforce OAuth callback handler
+app.receiver.app.get('/oauth/salesforce/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    
+    if (!code || !state) {
+      return res.status(400).send('Missing authorization code or state');
+    }
+    
+    const [teamId, userId] = state.split(':');
+    
+    // Exchange code for tokens
+    const tokenResponse = await axios.post('https://login.salesforce.com/services/oauth2/token', {
+      grant_type: 'authorization_code',
+      client_id: process.env.SALESFORCE_CLIENT_ID,
+      client_secret: process.env.SALESFORCE_CLIENT_SECRET,
+      redirect_uri: process.env.SALESFORCE_REDIRECT_URL,
+      code: code
+    });
+    
+    const tokenData = {
+      access_token: tokenResponse.data.access_token,
+      refresh_token: tokenResponse.data.refresh_token,
+      instance_url: tokenResponse.data.instance_url,
+      id: tokenResponse.data.id
+    };
+    
+    // Save tokens to Redis
+    await redisService.saveSalesforceTokens(teamId, userId, tokenData);
+    
+    res.send(`
+      <html>
+        <body>
+          <h2>✅ Salesforce Connected Successfully!</h2>
+          <p>You can now close this window and return to Slack.</p>
+          <p>Your AI assistant can now help you with Salesforce operations!</p>
+          <script>
+            setTimeout(() => {
+              window.close();
+            }, 3000);
+          </script>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('Salesforce OAuth callback error:', error);
+    res.status(500).send(`
+      <html>
+        <body>
+          <h2>❌ Connection Failed</h2>
+          <p>There was an error connecting to Salesforce. Please try again.</p>
+          <p>Error: ${error.message}</p>
+        </body>
+      </html>
+    `);
+  }
+});
+
+// Disconnect Salesforce command
+app.command('/disconnect-salesforce', async ({ command, ack, respond }) => {
+  await ack();
+  
+  try {
+    const teamId = command.team_id;
+    const userId = command.user_id;
+    
+    const success = await redisService.deleteSalesforceTokens(teamId, userId);
+    
+    if (success) {
+      await respond('✅ Salesforce connection has been disconnected successfully.');
+    } else {
+      await respond('❌ No Salesforce connection found to disconnect.');
+    }
+  } catch (error) {
+    console.error('Error disconnecting Salesforce:', error);
+    await respond('Sorry, there was an error disconnecting Salesforce. Please try again.');
   }
 });
 

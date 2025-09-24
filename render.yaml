@@ -5,17 +5,23 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
-    envVars:
-      - key: SLACK_BOT_TOKEN
-        sync: false
-      - key: SLACK_SIGNING_SECRET
-        sync: false
-      - key: XAI_API_KEY
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: PORT
-        value: 10000
+  envVars:
+    - key: SLACK_BOT_TOKEN
+      sync: false
+    - key: SLACK_SIGNING_SECRET
+      sync: false
+    - key: XAI_API_KEY
+      sync: false
+    - key: REDIS_URL
+      sync: false
+    - key: SALESFORCE_CLIENT_ID
+      sync: false
+    - key: SALESFORCE_CLIENT_SECRET
+      sync: false
+    - key: SALESFORCE_REDIRECT_URL
+      sync: false
+    - key: PORT
+      value: 10000
 
   - type: redis
     name: devbot-ai-redis
