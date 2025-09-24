@@ -1092,9 +1092,10 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
     const success = await redisService.updateSuggestedPrompt(teamId, promptId, updates);
     
     if (success) {
-      // Close the edit modal and update the underlying view prompts modal
-      await client.views.update({
-        view_id: view.id,
+      // Push the updated view prompts modal
+      const blocks = await getViewPromptsBlocks(teamId);
+      await client.views.push({
+        trigger_id: body.trigger_id,
         view: {
           type: 'modal',
           callback_id: 'view_suggested_prompts',
@@ -1106,7 +1107,7 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
             type: 'plain_text',
             text: 'Close'
           },
-          blocks: await getViewPromptsBlocks(teamId)
+          blocks: blocks
         }
       });
     } else {
