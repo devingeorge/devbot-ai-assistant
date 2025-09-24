@@ -360,6 +360,122 @@ class RedisService {
     }
   }
 
+  // Key-Phrase Responses Management
+  async saveKeyPhraseResponse(teamId, responseData) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot save key-phrase response.');
+      return false;
+    }
+    try {
+      const responseId = responseData.id || `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const key = `key_phrase_responses:${teamId}:${responseId}`;
+      
+      const responseWithId = {
+        ...responseData,
+        id: responseId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      await this.client.set(key, JSON.stringify(responseWithId), 'EX', 86400 * 365); // 1 year TTL
+      console.log(`Saved key-phrase response ${responseId} for team: ${teamId}`);
+      return responseId;
+    } catch (error) {
+      console.error('Error saving key-phrase response:', error);
+      return false;
+    }
+  }
+
+  async getKeyPhraseResponse(teamId, responseId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot get key-phrase response.');
+      return null;
+    }
+    try {
+      const key = `key_phrase_responses:${teamId}:${responseId}`;
+      const data = await this.client.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('Error getting key-phrase response:', error);
+      return null;
+    }
+  }
+
+  async getAllKeyPhraseResponses(teamId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot get key-phrase responses.');
+      return [];
+    }
+    try {
+      const pattern = `key_phrase_responses:${teamId}:*`;
+      const keys = await this.client.keys(pattern);
+      
+      if (keys.length === 0) {
+        return [];
+      }
+      
+      const responses = [];
+      for (const key of keys) {
+        const data = await this.client.get(key);
+        if (data) {
+          responses.push(JSON.parse(data));
+        }
+      }
+      
+      // Sort by creation date (newest first)
+      return responses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    } catch (error) {
+      console.error('Error getting all key-phrase responses:', error);
+      return [];
+    }
+  }
+
+  async updateKeyPhraseResponse(teamId, responseId, updates) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot update key-phrase response.');
+      return false;
+    }
+    try {
+      const key = `key_phrase_responses:${teamId}:${responseId}`;
+      const existingData = await this.client.get(key);
+      
+      if (!existingData) {
+        return false;
+      }
+      
+      const existingResponse = JSON.parse(existingData);
+      const updatedResponse = {
+        ...existingResponse,
+        ...updates,
+        id: responseId, // Ensure ID doesn't change
+        updatedAt: new Date().toISOString()
+      };
+      
+      await this.client.set(key, JSON.stringify(updatedResponse), 'EX', 86400 * 365); // 1 year TTL
+      console.log(`Updated key-phrase response ${responseId} for team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error updating key-phrase response:', error);
+      return false;
+    }
+  }
+
+  async deleteKeyPhraseResponse(teamId, responseId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot delete key-phrase response.');
+      return false;
+    }
+    try {
+      const key = `key_phrase_responses:${teamId}:${responseId}`;
+      await this.client.del(key);
+      console.log(`Deleted key-phrase response ${responseId} for team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting key-phrase response:', error);
+      return false;
+    }
+  }
+
   // Health check
   async healthCheck() {
     if (this.isMock) return true;

@@ -17,6 +17,74 @@ const app = new App({
   }
 });
 
+// Helper function to check for key-phrase response matches
+async function checkKeyPhraseResponse(message, teamId) {
+  try {
+    const responses = await redisService.getAllKeyPhraseResponses(teamId);
+    const enabledResponses = responses.filter(r => r.enabled !== false);
+    
+    for (const response of enabledResponses) {
+      const trigger = response.triggerPhrase.toLowerCase();
+      const messageText = message.toLowerCase();
+      
+      // Check for exact match
+      if (messageText === trigger) {
+        return response;
+      }
+      
+      // Check for wildcard match (starts with)
+      if (trigger.endsWith('*')) {
+        const prefix = trigger.slice(0, -1); // Remove the *
+        if (messageText.startsWith(prefix)) {
+          return response;
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error checking key-phrase responses:', error);
+    return null;
+  }
+}
+
+// Helper function to send response (handles both plain text and Block Kit)
+async function sendKeyPhraseResponse(client, channel, responseText, threadTs = null) {
+  try {
+    // Try to parse as Block Kit JSON
+    try {
+      const blocks = JSON.parse(responseText);
+      if (Array.isArray(blocks)) {
+        // It's valid Block Kit JSON
+        await client.chat.postMessage({
+          channel: channel,
+          text: 'Response',
+          blocks: blocks,
+          thread_ts: threadTs
+        });
+        return;
+      }
+    } catch (parseError) {
+      // Not valid JSON, treat as plain text
+    }
+    
+    // Send as plain text
+    await client.chat.postMessage({
+      channel: channel,
+      text: responseText,
+      thread_ts: threadTs
+    });
+  } catch (error) {
+    console.error('Error sending key-phrase response:', error);
+    // Fallback to plain text
+    await client.chat.postMessage({
+      channel: channel,
+      text: responseText,
+      thread_ts: threadTs
+    });
+  }
+}
+
 // GROK API integration function with conversation context and integration support
 async function callGrokAPI(message, userId, conversationHistory = [], teamId = null) {
   try {
@@ -297,6 +365,17 @@ app.event('message', async ({ event, say, client, context }) => {
     try {
       console.log('Processing AI Assistant message:', event);
       
+      // Check for key-phrase response matches first
+      const teamId = context.teamId;
+      if (teamId) {
+        const keyPhraseResponse = await checkKeyPhraseResponse(event.text, teamId);
+        if (keyPhraseResponse) {
+          console.log('Key-phrase response matched:', keyPhraseResponse.triggerPhrase);
+          await sendKeyPhraseResponse(client, event.channel, keyPhraseResponse.responseText, event.thread_ts);
+          return; // Skip AI processing
+        }
+      }
+      
       // Show typing indicator
       await client.conversations.mark({
         channel: event.channel,
@@ -327,6 +406,17 @@ app.event('message', async ({ event, say, client, context }) => {
   // Handle regular DM messages (no thread_ts)
   else if (event.channel_type === 'im' && !event.thread_ts) {
     try {
+      // Check for key-phrase response matches first
+      const teamId = context.teamId;
+      if (teamId) {
+        const keyPhraseResponse = await checkKeyPhraseResponse(event.text, teamId);
+        if (keyPhraseResponse) {
+          console.log('Key-phrase response matched:', keyPhraseResponse.triggerPhrase);
+          await sendKeyPhraseResponse(client, event.channel, keyPhraseResponse.responseText);
+          return; // Skip AI processing
+        }
+      }
+      
       // Show typing indicator
       await client.conversations.mark({
         channel: event.channel,
@@ -419,6 +509,38 @@ app.event('app_home_opened', async ({ event, client }) => {
                   text: '📋 View Prompts'
                 },
                 action_id: 'view_suggested_prompts_button'
+              }
+            ]
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Key-Phrase Responses:*\nSet up automatic responses that bypass the AI for specific phrases:'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '➕ Add Response'
+                },
+                action_id: 'add_key_phrase_response_button',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '📋 View Responses'
+                },
+                action_id: 'view_key_phrase_responses_button'
               }
             ]
           },
@@ -1236,6 +1358,250 @@ app.action(/^delete_prompt_(.+)$/, async ({ ack, body, client, action }) => {
     await client.chat.postMessage({
       channel: body.user.id,
       text: 'Sorry, there was an error deleting the suggested prompt. Please try again.'
+    });
+  }
+});
+
+// Add key-phrase response button handler
+app.action('add_key_phrase_response_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'add_key_phrase_response',
+        title: {
+          type: 'plain_text',
+          text: 'Add Key-Phrase Response'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Add Response'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Create a key-phrase response that will automatically trigger without using the AI:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'trigger_phrase',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'trigger_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "how are you" or "hey*" (use * for wildcard)'
+              },
+              max_length: 100
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Trigger Phrase'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'response_text',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'response_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "Great! How are you!" or use Block Kit JSON for rich responses'
+              },
+              max_length: 2000
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Response (Plain Text or Block Kit JSON)'
+            }
+          },
+          {
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: '💡 Use * for wildcards (e.g., "hey*" matches "hey there", "hey buddy", etc.)'
+              }
+            ]
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening add key-phrase response modal:', error);
+  }
+});
+
+// Add key-phrase response modal submission handler
+app.view('add_key_phrase_response', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const values = view.state.values;
+    
+    const triggerPhrase = values.trigger_phrase.trigger_text.value;
+    const responseText = values.response_text.response_text.value;
+    
+    if (!triggerPhrase || !responseText) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Both trigger phrase and response are required. Please try again.'
+      });
+      return;
+    }
+    
+    const responseData = {
+      triggerPhrase: triggerPhrase.trim(),
+      responseText: responseText.trim(),
+      enabled: true
+    };
+    
+    const responseId = await redisService.saveKeyPhraseResponse(teamId, responseData);
+    
+    if (responseId) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Key-phrase response "${triggerPhrase}" added successfully!`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to save key-phrase response. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing key-phrase response:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error creating the key-phrase response. Please try again.'
+    });
+  }
+});
+
+// View key-phrase responses button handler
+app.action('view_key_phrase_responses_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    console.log('View key-phrase responses - teamId:', teamId);
+    const responses = await redisService.getAllKeyPhraseResponses(teamId);
+    console.log('View key-phrase responses - retrieved responses:', responses);
+    
+    const blocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Key-Phrase Responses* (${responses.length} total)`
+        }
+      },
+      {
+        type: 'divider'
+      }
+    ];
+    
+    if (responses.length === 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'No key-phrase responses created yet. Click "Add Response" to create your first one!'
+        }
+      });
+    } else {
+      responses.forEach((response, index) => {
+        const statusIcon = response.enabled === false ? '🔴' : '🟢';
+        const statusText = response.enabled === false ? 'Disabled' : 'Enabled';
+        
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `${statusIcon} *${response.triggerPhrase}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+          }
+        });
+        
+        blocks.push({
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '✏️ Edit'
+              },
+              action_id: `edit_response_${response.id}`,
+              value: response.id
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: response.enabled === false ? '✅ Enable' : '⏸️ Disable'
+              },
+              action_id: `toggle_response_${response.id}`,
+              value: response.id,
+              style: response.enabled === false ? 'primary' : undefined
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '🗑️ Delete'
+              },
+              action_id: `delete_response_${response.id}`,
+              value: response.id,
+              style: 'danger'
+            }
+          ]
+        });
+        
+        if (index < responses.length - 1) {
+          blocks.push({
+            type: 'divider'
+          });
+        }
+      });
+    }
+    
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'view_key_phrase_responses',
+        title: {
+          type: 'plain_text',
+          text: 'Key-Phrase Responses'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Close'
+        },
+        blocks: blocks
+      }
+    });
+  } catch (error) {
+    console.error('Error opening view key-phrase responses modal:', error);
+    console.error('Full error details:', error.response?.data || error.message);
+    
+    // Send error message to user
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: `❌ Error opening responses view: ${error.message || 'Unknown error'}`
     });
   }
 });
