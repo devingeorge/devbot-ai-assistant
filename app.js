@@ -1092,28 +1092,33 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
     const success = await redisService.updateSuggestedPrompt(teamId, promptId, updates);
     
     if (success) {
-      // Update the original view prompts modal with fresh data
-      const blocks = await getViewPromptsBlocks(teamId);
-      
       // Get the root view_id (the original "View Prompts" modal)
       const rootViewId = body.view.root_view_id || body.view.id;
       
-      await client.views.update({
-        view_id: rootViewId,
-        view: {
-          type: 'modal',
-          callback_id: 'view_suggested_prompts',
-          title: {
-            type: 'plain_text',
-            text: 'Suggested Prompts'
-          },
-          close: {
-            type: 'plain_text',
-            text: 'Close'
-          },
-          blocks: blocks
+      // Wait a moment for the edit modal to close and return to the original modal
+      setTimeout(async () => {
+        try {
+          const blocks = await getViewPromptsBlocks(teamId);
+          await client.views.update({
+            view_id: rootViewId,
+            view: {
+              type: 'modal',
+              callback_id: 'view_suggested_prompts',
+              title: {
+                type: 'plain_text',
+                text: 'Suggested Prompts'
+              },
+              close: {
+                type: 'plain_text',
+                text: 'Close'
+              },
+              blocks: blocks
+            }
+          });
+        } catch (error) {
+          console.error('Error updating modal after edit:', error);
         }
-      });
+      }, 500); // Small delay to ensure the edit modal has closed
     } else {
       await client.chat.postMessage({
         channel: body.user.id,
