@@ -1092,10 +1092,14 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
     const success = await redisService.updateSuggestedPrompt(teamId, promptId, updates);
     
     if (success) {
-      // Open a fresh modal with updated data
+      // Update the original view prompts modal with fresh data
       const blocks = await getViewPromptsBlocks(teamId);
-      await client.views.open({
-        trigger_id: body.trigger_id,
+      
+      // Get the root view_id (the original "View Prompts" modal)
+      const rootViewId = body.view.root_view_id || body.view.id;
+      
+      await client.views.update({
+        view_id: rootViewId,
         view: {
           type: 'modal',
           callback_id: 'view_suggested_prompts',
