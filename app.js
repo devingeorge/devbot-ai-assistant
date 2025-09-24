@@ -1085,10 +1085,7 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
     const success = await redisService.updateSuggestedPrompt(teamId, promptId, updates);
     
     if (success) {
-      // Close the edit modal and update the view prompts modal
-      await client.views.pop({
-        view_id: view.id
-      });
+      // Update the view prompts modal to reflect changes
       await updateViewPromptsModal(client, body, teamId);
     } else {
       await client.chat.postMessage({
