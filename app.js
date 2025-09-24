@@ -48,6 +48,28 @@ async function checkKeyPhraseResponse(message, teamId) {
   }
 }
 
+// Helper function to check for channel auto-response matches
+async function checkChannelAutoResponse(channelId, teamId) {
+  try {
+    const responses = await redisService.getAllChannelAutoResponses(teamId);
+    const enabledResponses = responses.filter(r => r.enabled !== false);
+    
+    for (const response of enabledResponses) {
+      // Check if channel matches (supports both channel ID and channel name)
+      if (response.channelId === channelId || 
+          response.channelId === `#${channelId}` ||
+          response.channelId.startsWith('C') && response.channelId === channelId) {
+        return response;
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error checking channel auto-responses:', error);
+    return null;
+  }
+}
+
 // Helper function to validate Block Kit structure
 function validateBlockKitStructure(blocks) {
   if (!Array.isArray(blocks)) {
@@ -497,6 +519,25 @@ app.event('message', async ({ event, say, client, context }) => {
       });
     }
   }
+  // Handle channel messages (not DMs)
+  else if (event.channel_type !== 'im') {
+    try {
+      console.log('Processing channel message:', event);
+      
+      // Check for channel auto-response matches
+      const teamId = context.teamId;
+      if (teamId) {
+        const channelAutoResponse = await checkChannelAutoResponse(event.channel, teamId);
+        if (channelAutoResponse) {
+          console.log('Channel auto-response matched:', channelAutoResponse.channelId);
+          await sendKeyPhraseResponse(client, event.channel, channelAutoResponse.responseText, event.ts);
+          return; // Skip AI processing
+        }
+      }
+    } catch (error) {
+      console.error('Error processing channel message:', error);
+    }
+  }
   // Handle regular DM messages (no thread_ts)
   else if (event.channel_type === 'im' && !event.thread_ts) {
     try {
@@ -635,6 +676,38 @@ app.event('app_home_opened', async ({ event, client }) => {
                   text: '📋 View Responses'
                 },
                 action_id: 'view_key_phrase_responses_button'
+              }
+            ]
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Channel Auto-Responses:*\nSet up automatic responses in specific channels (responds in threads):'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '➕ Add Channel Response'
+                },
+                action_id: 'add_channel_auto_response_button',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '📋 View Channel Responses'
+                },
+                action_id: 'view_channel_auto_responses_button'
               }
             ]
           },
@@ -1963,6 +2036,740 @@ app.action(/^delete_response_(.+)$/, async ({ ack, body, client, action }) => {
     await client.chat.postMessage({
       channel: body.user.id,
       text: 'Sorry, there was an error deleting the key-phrase response. Please try again.'
+    });
+  }
+});
+
+// Add channel auto-response button handler
+app.action('add_channel_auto_response_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'add_channel_auto_response',
+        title: {
+          type: 'plain_text',
+          text: 'Add Channel Auto-Response'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Create Response'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Create an automatic response for a specific channel:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'channel_id',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'channel_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., #general or C1234567890'
+              },
+              max_length: 100
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Channel ID or Name'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'response_text',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'response_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'Plain text: "Thanks for sharing!"\n\nBlock Kit JSON:\n[{"type":"section","text":{"type":"mrkdwn","text":"*Thanks for sharing!* :thumbsup:"}}]'
+              },
+              max_length: 2000
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Response (Plain Text or Block Kit JSON)'
+            }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening add channel auto-response modal:', error);
+  }
+});
+
+// Add channel auto-response modal submission handler
+app.view('add_channel_auto_response', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const values = view.state.values;
+    
+    const channelId = values.channel_id.channel_text.value;
+    const responseText = values.response_text.response_text.value;
+    
+    if (!channelId || !responseText) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Both channel ID and response are required. Please try again.'
+      });
+      return;
+    }
+    
+    const responseData = {
+      channelId: channelId.trim(),
+      responseText: responseText.trim(),
+      enabled: true
+    };
+    
+    const responseId = await redisService.saveChannelAutoResponse(teamId, responseData);
+    
+    if (responseId) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Channel auto-response created successfully!\n\nChannel: ${channelId}\nResponse: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to create channel auto-response. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing channel auto-response creation:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error creating the channel auto-response. Please try again.'
+    });
+  }
+});
+
+// View channel auto-responses button handler
+app.action('view_channel_auto_responses_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    console.log('View channel auto-responses - teamId:', teamId);
+    const responses = await redisService.getAllChannelAutoResponses(teamId);
+    console.log('View channel auto-responses - retrieved responses:', responses);
+    
+    const blocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Channel Auto-Responses* (${responses.length} total)`
+        }
+      },
+      {
+        type: 'divider'
+      }
+    ];
+    
+    if (responses.length === 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'No channel auto-responses created yet. Click "Add Channel Response" to create your first one!'
+        }
+      });
+    } else {
+      responses.forEach((response, index) => {
+        const statusIcon = response.enabled === false ? '🔴' : '🟢';
+        const statusText = response.enabled === false ? 'Disabled' : 'Enabled';
+        
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `${statusIcon} *${response.channelId}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+          }
+        });
+        
+        blocks.push({
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '✏️ Edit'
+              },
+              action_id: `edit_channel_response_${response.id}`,
+              value: response.id
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: response.enabled === false ? '✅ Enable' : '⏸️ Disable'
+              },
+              action_id: `toggle_channel_response_${response.id}`,
+              value: response.id,
+              style: response.enabled === false ? 'primary' : undefined
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '🗑️ Delete'
+              },
+              action_id: `delete_channel_response_${response.id}`,
+              value: response.id,
+              style: 'danger'
+            }
+          ]
+        });
+        
+        if (index < responses.length - 1) {
+          blocks.push({
+            type: 'divider'
+          });
+        }
+      });
+    }
+    
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'view_channel_auto_responses',
+        title: {
+          type: 'plain_text',
+          text: 'Channel Auto-Responses'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Close'
+        },
+        blocks: blocks
+      }
+    });
+  } catch (error) {
+    console.error('Error opening view channel auto-responses modal:', error);
+    console.error('Full error details:', error.response?.data || error.message);
+    
+    // Send error message to user
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: `❌ Error opening channel responses view: ${error.message || 'Unknown error'}`
+    });
+  }
+});
+
+// Edit channel auto-response action handler
+app.action(/^edit_channel_response_(.+)$/, async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const responseId = action.value;
+    const response = await redisService.getChannelAutoResponse(teamId, responseId);
+    
+    if (!response) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Response not found. It may have been deleted.'
+      });
+      return;
+    }
+    
+    await client.views.push({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'edit_channel_auto_response',
+        title: {
+          type: 'plain_text',
+          text: 'Edit Channel Auto-Response'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Update Response'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        private_metadata: responseId,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Edit your channel auto-response:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'channel_id',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'channel_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., #general or C1234567890'
+              },
+              max_length: 100,
+              initial_value: response.channelId
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Channel ID or Name'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'response_text',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'response_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'Plain text: "Thanks for sharing!"\n\nBlock Kit JSON:\n[{"type":"section","text":{"type":"mrkdwn","text":"*Thanks for sharing!* :thumbsup:"}}]'
+              },
+              max_length: 2000,
+              initial_value: response.responseText
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Response (Plain Text or Block Kit JSON)'
+            }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening edit channel response modal:', error);
+  }
+});
+
+// Edit channel auto-response modal submission handler
+app.view('edit_channel_auto_response', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const responseId = view.private_metadata;
+    const values = view.state.values;
+    
+    const channelId = values.channel_id.channel_text.value;
+    const responseText = values.response_text.response_text.value;
+    
+    if (!channelId || !responseText) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Both channel ID and response are required. Please try again.'
+      });
+      return;
+    }
+    
+    const updates = {
+      channelId: channelId.trim(),
+      responseText: responseText.trim()
+    };
+    
+    const success = await redisService.updateChannelAutoResponse(teamId, responseId, updates);
+    
+    if (success) {
+      // Update the underlying view after a short delay to ensure the edit modal has closed
+      setTimeout(async () => {
+        try {
+          const responses = await redisService.getAllChannelAutoResponses(teamId);
+          const blocks = [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*Channel Auto-Responses* (${responses.length} total)`
+              }
+            },
+            {
+              type: 'divider'
+            }
+          ];
+          
+          if (responses.length === 0) {
+            blocks.push({
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: 'No channel auto-responses created yet. Click "Add Channel Response" to create your first one!'
+              }
+            });
+          } else {
+            responses.forEach((response, index) => {
+              const statusIcon = response.enabled === false ? '🔴' : '🟢';
+              const statusText = response.enabled === false ? 'Disabled' : 'Enabled';
+              
+              blocks.push({
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `${statusIcon} *${response.channelId}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+                }
+              });
+              
+              blocks.push({
+                type: 'actions',
+                elements: [
+                  {
+                    type: 'button',
+                    text: {
+                      type: 'plain_text',
+                      text: '✏️ Edit'
+                    },
+                    action_id: `edit_channel_response_${response.id}`,
+                    value: response.id
+                  },
+                  {
+                    type: 'button',
+                    text: {
+                      type: 'plain_text',
+                      text: response.enabled === false ? '✅ Enable' : '⏸️ Disable'
+                    },
+                    action_id: `toggle_channel_response_${response.id}`,
+                    value: response.id,
+                    style: response.enabled === false ? 'primary' : undefined
+                  },
+                  {
+                    type: 'button',
+                    text: {
+                      type: 'plain_text',
+                      text: '🗑️ Delete'
+                    },
+                    action_id: `delete_channel_response_${response.id}`,
+                    value: response.id,
+                    style: 'danger'
+                  }
+                ]
+              });
+              
+              if (index < responses.length - 1) {
+                blocks.push({
+                  type: 'divider'
+                });
+              }
+            });
+          }
+          
+          await client.views.update({
+            view_id: body.view.root_view_id,
+            view: {
+              type: 'modal',
+              callback_id: 'view_channel_auto_responses',
+              title: {
+                type: 'plain_text',
+                text: 'Channel Auto-Responses'
+              },
+              close: {
+                type: 'plain_text',
+                text: 'Close'
+              },
+              blocks: blocks
+            }
+          });
+        } catch (updateError) {
+          console.error('Error updating view after edit:', updateError);
+        }
+      }, 500);
+      
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Channel auto-response updated successfully!\n\nChannel: ${channelId}\nResponse: ${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to update channel auto-response. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing channel auto-response update:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error updating the channel auto-response. Please try again.'
+    });
+  }
+});
+
+// Toggle channel auto-response enabled/disabled action handler
+app.action(/^toggle_channel_response_(.+)$/, async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const responseId = action.value;
+    const response = await redisService.getChannelAutoResponse(teamId, responseId);
+    
+    if (!response) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Response not found. It may have been deleted.'
+      });
+      return;
+    }
+    
+    const newEnabled = !response.enabled;
+    const success = await redisService.updateChannelAutoResponse(teamId, responseId, { enabled: newEnabled });
+    
+    if (success) {
+      // Update the modal to reflect the change
+      const responses = await redisService.getAllChannelAutoResponses(teamId);
+      const blocks = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*Channel Auto-Responses* (${responses.length} total)`
+          }
+        },
+        {
+          type: 'divider'
+        }
+      ];
+      
+      if (responses.length === 0) {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: 'No channel auto-responses created yet. Click "Add Channel Response" to create your first one!'
+          }
+        });
+      } else {
+        responses.forEach((response, index) => {
+          const statusIcon = response.enabled === false ? '🔴' : '🟢';
+          const statusText = response.enabled === false ? 'Disabled' : 'Enabled';
+          
+          blocks.push({
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `${statusIcon} *${response.channelId}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+            }
+          });
+          
+          blocks.push({
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '✏️ Edit'
+                },
+                action_id: `edit_channel_response_${response.id}`,
+                value: response.id
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: response.enabled === false ? '✅ Enable' : '⏸️ Disable'
+                },
+                action_id: `toggle_channel_response_${response.id}`,
+                value: response.id,
+                style: response.enabled === false ? 'primary' : undefined
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🗑️ Delete'
+                },
+                action_id: `delete_channel_response_${response.id}`,
+                value: response.id,
+                style: 'danger'
+              }
+            ]
+          });
+          
+          if (index < responses.length - 1) {
+            blocks.push({
+              type: 'divider'
+            });
+          }
+        });
+      }
+      
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          callback_id: 'view_channel_auto_responses',
+          title: {
+            type: 'plain_text',
+            text: 'Channel Auto-Responses'
+          },
+          close: {
+            type: 'plain_text',
+            text: 'Close'
+          },
+          blocks: blocks
+        }
+      });
+      
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Channel response "${response.channelId}" ${newEnabled ? 'enabled' : 'disabled'} successfully!`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to update response status. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error toggling channel response:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error updating the response. Please try again.'
+    });
+  }
+});
+
+// Delete channel auto-response action handler
+app.action(/^delete_channel_response_(.+)$/, async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const responseId = action.value;
+    
+    const success = await redisService.deleteChannelAutoResponse(teamId, responseId);
+    
+    if (success) {
+      // Update the modal to reflect the change
+      const responses = await redisService.getAllChannelAutoResponses(teamId);
+      const blocks = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*Channel Auto-Responses* (${responses.length} total)`
+          }
+        },
+        {
+          type: 'divider'
+        }
+      ];
+      
+      if (responses.length === 0) {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: 'No channel auto-responses created yet. Click "Add Channel Response" to create your first one!'
+          }
+        });
+      } else {
+        responses.forEach((response, index) => {
+          const statusIcon = response.enabled === false ? '🔴' : '🟢';
+          const statusText = response.enabled === false ? 'Disabled' : 'Enabled';
+          
+          blocks.push({
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `${statusIcon} *${response.channelId}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+            }
+          });
+          
+          blocks.push({
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '✏️ Edit'
+                },
+                action_id: `edit_channel_response_${response.id}`,
+                value: response.id
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: response.enabled === false ? '✅ Enable' : '⏸️ Disable'
+                },
+                action_id: `toggle_channel_response_${response.id}`,
+                value: response.id,
+                style: response.enabled === false ? 'primary' : undefined
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🗑️ Delete'
+                },
+                action_id: `delete_channel_response_${response.id}`,
+                value: response.id,
+                style: 'danger'
+              }
+            ]
+          });
+          
+          if (index < responses.length - 1) {
+            blocks.push({
+              type: 'divider'
+            });
+          }
+        });
+      }
+      
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          callback_id: 'view_channel_auto_responses',
+          title: {
+            type: 'plain_text',
+            text: 'Channel Auto-Responses'
+          },
+          close: {
+            type: 'plain_text',
+            text: 'Close'
+          },
+          blocks: blocks
+        }
+      });
+      
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '✅ Channel auto-response deleted successfully!'
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to delete channel auto-response. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting channel auto-response:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error deleting the channel auto-response. Please try again.'
     });
   }
 });

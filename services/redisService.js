@@ -386,6 +386,32 @@ class RedisService {
     }
   }
 
+  // Channel Auto-Responses Management
+  async saveChannelAutoResponse(teamId, responseData) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot save channel auto-response.');
+      return false;
+    }
+    try {
+      const responseId = responseData.id || `channel_response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const key = `channel_auto_responses:${teamId}:${responseId}`;
+      
+      const responseWithId = {
+        ...responseData,
+        id: responseId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      await this.client.set(key, JSON.stringify(responseWithId), 'EX', 86400 * 365); // 1 year TTL
+      console.log(`Saved channel auto-response ${responseId} for team: ${teamId}`);
+      return responseId;
+    } catch (error) {
+      console.error('Error saving channel auto-response:', error);
+      return false;
+    }
+  }
+
   async getKeyPhraseResponse(teamId, responseId) {
     if (!this.isConnected) {
       console.warn('Redis not connected, cannot get key-phrase response.');
@@ -472,6 +498,96 @@ class RedisService {
       return true;
     } catch (error) {
       console.error('Error deleting key-phrase response:', error);
+      return false;
+    }
+  }
+
+  async getChannelAutoResponse(teamId, responseId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot get channel auto-response.');
+      return null;
+    }
+    try {
+      const key = `channel_auto_responses:${teamId}:${responseId}`;
+      const data = await this.client.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('Error getting channel auto-response:', error);
+      return null;
+    }
+  }
+
+  async getAllChannelAutoResponses(teamId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot get channel auto-responses.');
+      return [];
+    }
+    try {
+      const pattern = `channel_auto_responses:${teamId}:*`;
+      const keys = await this.client.keys(pattern);
+      
+      if (keys.length === 0) {
+        return [];
+      }
+      
+      const responses = [];
+      for (const key of keys) {
+        const data = await this.client.get(key);
+        if (data) {
+          responses.push(JSON.parse(data));
+        }
+      }
+      
+      // Sort by creation date (newest first)
+      return responses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    } catch (error) {
+      console.error('Error getting all channel auto-responses:', error);
+      return [];
+    }
+  }
+
+  async updateChannelAutoResponse(teamId, responseId, updates) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot update channel auto-response.');
+      return false;
+    }
+    try {
+      const key = `channel_auto_responses:${teamId}:${responseId}`;
+      const existingData = await this.client.get(key);
+      
+      if (!existingData) {
+        return false;
+      }
+      
+      const existingResponse = JSON.parse(existingData);
+      const updatedResponse = {
+        ...existingResponse,
+        ...updates,
+        id: responseId, // Ensure ID doesn't change
+        updatedAt: new Date().toISOString()
+      };
+      
+      await this.client.set(key, JSON.stringify(updatedResponse), 'EX', 86400 * 365); // 1 year TTL
+      console.log(`Updated channel auto-response ${responseId} for team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error updating channel auto-response:', error);
+      return false;
+    }
+  }
+
+  async deleteChannelAutoResponse(teamId, responseId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot delete channel auto-response.');
+      return false;
+    }
+    try {
+      const key = `channel_auto_responses:${teamId}:${responseId}`;
+      await this.client.del(key);
+      console.log(`Deleted channel auto-response ${responseId} for team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting channel auto-response:', error);
       return false;
     }
   }
