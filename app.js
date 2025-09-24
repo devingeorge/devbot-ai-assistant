@@ -866,6 +866,109 @@ app.view('add_suggested_prompt', async ({ ack, body, view, client }) => {
   }
 });
 
+// Helper function to update the view prompts modal
+async function updateViewPromptsModal(client, body, teamId) {
+  try {
+    const prompts = await redisService.getAllSuggestedPrompts(teamId);
+    
+    const blocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Suggested Prompts* (${prompts.length} total)`
+        }
+      },
+      {
+        type: 'divider'
+      }
+    ];
+    
+    if (prompts.length === 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'No suggested prompts created yet. Click "Add Prompt" to create your first one!'
+        }
+      });
+    } else {
+      prompts.forEach((prompt, index) => {
+        const statusIcon = prompt.enabled === false ? '🔴' : '🟢';
+        const statusText = prompt.enabled === false ? 'Disabled' : 'Enabled';
+        
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `${statusIcon} *${prompt.buttonText}* (${statusText})\n_${prompt.messageText.substring(0, 100)}${prompt.messageText.length > 100 ? '...' : ''}_`
+          }
+        });
+        
+        blocks.push({
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '✏️ Edit'
+              },
+              action_id: `edit_prompt_${prompt.id}`,
+              value: prompt.id
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: prompt.enabled === false ? '✅ Enable' : '⏸️ Disable'
+              },
+              action_id: `toggle_prompt_${prompt.id}`,
+              value: prompt.id,
+              style: prompt.enabled === false ? 'primary' : undefined
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '🗑️ Delete'
+              },
+              action_id: `delete_prompt_${prompt.id}`,
+              value: prompt.id,
+              style: 'danger'
+            }
+          ]
+        });
+        
+        if (index < prompts.length - 1) {
+          blocks.push({
+            type: 'divider'
+          });
+        }
+      });
+    }
+    
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        callback_id: 'view_suggested_prompts',
+        title: {
+          type: 'plain_text',
+          text: 'Suggested Prompts'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Close'
+        },
+        blocks: blocks
+      }
+    });
+  } catch (error) {
+    console.error('Error updating view prompts modal:', error);
+  }
+}
+
 // Edit suggested prompt action handler
 app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action }) => {
   await ack();
@@ -883,7 +986,7 @@ app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action }) => {
       return;
     }
     
-    await client.views.open({
+    await client.views.push({
       trigger_id: body.trigger_id,
       view: {
         type: 'modal',
@@ -945,7 +1048,7 @@ app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action }) => {
               type: 'plain_text',
               text: 'Message to Send'
             }
-          },
+          }
         ]
       }
     });
@@ -982,10 +1085,11 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
     const success = await redisService.updateSuggestedPrompt(teamId, promptId, updates);
     
     if (success) {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: `✅ Suggested prompt "${buttonText}" updated successfully!`
+      // Close the edit modal and update the view prompts modal
+      await client.views.pop({
+        view_id: view.id
       });
+      await updateViewPromptsModal(client, body, teamId);
     } else {
       await client.chat.postMessage({
         channel: body.user.id,
@@ -1022,10 +1126,8 @@ app.action(/^toggle_prompt_(.+)$/, async ({ ack, body, client, action }) => {
     const success = await redisService.updateSuggestedPrompt(teamId, promptId, { enabled: newEnabled });
     
     if (success) {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: `✅ Prompt "${prompt.buttonText}" ${newEnabled ? 'enabled' : 'disabled'} successfully!`
-      });
+      // Update the modal view to reflect the new status
+      await updateViewPromptsModal(client, body, teamId);
     } else {
       await client.chat.postMessage({
         channel: body.user.id,
@@ -1052,10 +1154,8 @@ app.action(/^delete_prompt_(.+)$/, async ({ ack, body, client, action }) => {
     const success = await redisService.deleteSuggestedPrompt(teamId, promptId);
     
     if (success) {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '✅ Suggested prompt deleted successfully!'
-      });
+      // Update the modal view to reflect the deletion
+      await updateViewPromptsModal(client, body, teamId);
     } else {
       await client.chat.postMessage({
         channel: body.user.id,
