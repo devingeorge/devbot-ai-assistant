@@ -358,6 +358,13 @@ app.event('app_mention', async ({ event, say, client }) => {
   } catch (error) {
     console.error('Error processing mention:', error);
     console.error('Error details:', error.message);
+    
+    // Debug missing scopes
+    if (error.data && error.data.response_metadata) {
+      console.error('Missing scopes:', error.data.response_metadata.scopes);
+      console.error('Accepted scopes:', error.data.response_metadata.acceptedScopes);
+    }
+    
     await say({
       text: `Sorry, I encountered an error: ${error.message}. Please try again.`,
       thread_ts: event.ts
@@ -551,6 +558,12 @@ app.event('message', async ({ event, say, client, context }) => {
       }
     } catch (error) {
       console.error('Error processing channel message:', error);
+      
+      // Debug missing scopes
+      if (error.data && error.data.response_metadata) {
+        console.error('Missing scopes:', error.data.response_metadata.scopes);
+        console.error('Accepted scopes:', error.data.response_metadata.acceptedScopes);
+      }
     }
   }
   // Handle regular DM messages (no thread_ts)
@@ -600,6 +613,13 @@ app.event('message', async ({ event, say, client, context }) => {
       await say(aiResponse);
     } catch (error) {
       console.error('Error processing DM:', error);
+      
+      // Debug missing scopes
+      if (error.data && error.data.response_metadata) {
+        console.error('Missing scopes:', error.data.response_metadata.scopes);
+        console.error('Accepted scopes:', error.data.response_metadata.acceptedScopes);
+      }
+      
       await say('Sorry, I encountered an error processing your request. Please try again.');
     }
   }
