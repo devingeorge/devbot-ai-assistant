@@ -1,4 +1,5 @@
 const { App } = require('@slack/bolt');
+const express = require('express');
 const axios = require('axios');
 const redisService = require('./services/redisService');
 const integrationService = require('./services/integrationService');
@@ -3366,8 +3367,12 @@ app.action('connect_salesforce_button', async ({ ack, body, client }) => {
   }
 });
 
+// Create Express app for OAuth callbacks
+const expressApp = express();
+expressApp.use(express.json());
+
 // Salesforce OAuth callback handler
-app.receiver.app.get('/oauth/salesforce/callback', async (req, res) => {
+expressApp.get('/oauth/salesforce/callback', async (req, res) => {
   try {
     const { code, state } = req.query;
     
@@ -3423,6 +3428,9 @@ app.receiver.app.get('/oauth/salesforce/callback', async (req, res) => {
     `);
   }
 });
+
+// Mount Express app on the Slack Bolt receiver
+app.receiver.app.use('/', expressApp);
 
 // Disconnect Salesforce command
 app.command('/disconnect-salesforce', async ({ command, ack, respond }) => {
