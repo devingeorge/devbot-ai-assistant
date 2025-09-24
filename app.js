@@ -2052,7 +2052,7 @@ app.action('add_channel_auto_response_button', async ({ ack, body, client }) => 
         callback_id: 'add_channel_auto_response',
         title: {
           type: 'plain_text',
-          text: 'Add Channel Auto-Response'
+          text: 'Add Channel Response'
         },
         submit: {
           type: 'plain_text',
@@ -2175,7 +2175,7 @@ app.action('view_channel_auto_responses_button', async ({ ack, body, client }) =
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `*Channel Auto-Responses* (${responses.length} total)`
+          text: `*Channel Responses* (${responses.length} total)`
         }
       },
       {
@@ -2254,7 +2254,7 @@ app.action('view_channel_auto_responses_button', async ({ ack, body, client }) =
         callback_id: 'view_channel_auto_responses',
         title: {
           type: 'plain_text',
-          text: 'Channel Auto-Responses'
+          text: 'Channel Responses'
         },
         close: {
           type: 'plain_text',
@@ -2299,7 +2299,7 @@ app.action(/^edit_channel_response_(.+)$/, async ({ ack, body, client, action })
         callback_id: 'edit_channel_auto_response',
         title: {
           type: 'plain_text',
-          text: 'Edit Channel Auto-Response'
+          text: 'Edit Channel Response'
         },
         submit: {
           type: 'plain_text',
@@ -2400,7 +2400,7 @@ app.view('edit_channel_auto_response', async ({ ack, body, view, client }) => {
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: `*Channel Auto-Responses* (${responses.length} total)`
+                text: `*Channel Responses* (${responses.length} total)`
               }
             },
             {
@@ -2479,7 +2479,7 @@ app.view('edit_channel_auto_response', async ({ ack, body, view, client }) => {
               callback_id: 'view_channel_auto_responses',
               title: {
                 type: 'plain_text',
-                text: 'Channel Auto-Responses'
+                text: 'Channel Responses'
               },
               close: {
                 type: 'plain_text',
@@ -2540,7 +2540,7 @@ app.action(/^toggle_channel_response_(.+)$/, async ({ ack, body, client, action 
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `*Channel Auto-Responses* (${responses.length} total)`
+            text: `*Channel Responses* (${responses.length} total)`
           }
         },
         {
@@ -2619,7 +2619,7 @@ app.action(/^toggle_channel_response_(.+)$/, async ({ ack, body, client, action 
           callback_id: 'view_channel_auto_responses',
           title: {
             type: 'plain_text',
-            text: 'Channel Auto-Responses'
+            text: 'Channel Responses'
           },
           close: {
             type: 'plain_text',
@@ -2666,7 +2666,7 @@ app.action(/^delete_channel_response_(.+)$/, async ({ ack, body, client, action 
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `*Channel Auto-Responses* (${responses.length} total)`
+            text: `*Channel Responses* (${responses.length} total)`
           }
         },
         {
@@ -2745,7 +2745,7 @@ app.action(/^delete_channel_response_(.+)$/, async ({ ack, body, client, action 
           callback_id: 'view_channel_auto_responses',
           title: {
             type: 'plain_text',
-            text: 'Channel Auto-Responses'
+            text: 'Channel Responses'
           },
           close: {
             type: 'plain_text',
