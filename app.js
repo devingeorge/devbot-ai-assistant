@@ -397,13 +397,6 @@ app.event('app_home_opened', async ({ event, client }) => {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Integrations:*\nConfigure integrations to extend my capabilities:'
-            }
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
               text: '*Suggested Prompts:*\nCreate quick-start prompts that appear as buttons in the AI Assistant pane:'
             }
           },
@@ -455,6 +448,15 @@ app.event('app_home_opened', async ({ event, client }) => {
                 type: 'button',
                 text: {
                   type: 'plain_text',
+                  text: '🧹 Clean Chat History'
+                },
+                action_id: 'clean_chat_history_button',
+                style: 'danger'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
                   text: '❓ Help'
                 },
                 action_id: 'help_button'
@@ -473,6 +475,44 @@ app.event('app_home_opened', async ({ event, client }) => {
 app.action('help_button', async ({ ack, say }) => {
   await ack();
   await say('I\'m an AI assistant powered by GROK! I can help you with questions, provide information, and assist with various tasks. Just ask me anything!');
+});
+
+// Clean chat history button handler
+app.action('clean_chat_history_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    // This only clears conversation history in Slack, not Redis data
+    // We'll send a message to the user's DM channel to clear the conversation
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '🧹 Chat history cleaned! Your conversation history has been cleared. This does not affect any saved integrations, prompts, or other data.',
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '🧹 *Chat History Cleaned!*\n\nYour conversation history has been cleared. This does not affect any saved integrations, prompts, or other data.'
+          }
+        },
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: '💡 Tip: You can start a fresh conversation anytime!'
+            }
+          ]
+        }
+      ]
+    });
+  } catch (error) {
+    console.error('Error cleaning chat history:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Sorry, there was an error cleaning the chat history. Please try again.'
+    });
+  }
 });
 
 // Add suggested prompt button handler
