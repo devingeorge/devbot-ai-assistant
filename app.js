@@ -249,8 +249,25 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       }
     }
     
-    // Build system prompt with integration capabilities
+    // Get user-specific system prompt configuration
+    let userSystemPrompt = null;
+    if (teamId && userId) {
+      userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+    }
+    
+    // Build system prompt with integration capabilities and user preferences
     let systemPrompt = 'You are a helpful AI assistant integrated into Slack. Be concise and helpful in your responses. Maintain context from previous messages in the conversation.';
+    
+    // Add user-specific behavior settings
+    if (userSystemPrompt) {
+      systemPrompt += `\n\nUser-specific behavior settings:`;
+      systemPrompt += `\n- Response tone: ${userSystemPrompt.tone}`;
+      systemPrompt += `\n- Business context: ${userSystemPrompt.businessType}`;
+      
+      if (userSystemPrompt.additionalDirections) {
+        systemPrompt += `\n- Additional directions: ${userSystemPrompt.additionalDirections}`;
+      }
+    }
     
     if (availableIntegrations.length > 0) {
       systemPrompt += `\n\nYou have access to the following integrations: ${availableIntegrations.join(', ')}. When users ask about creating tickets, searching issues, or other integration tasks, you can help them with these tools.`;
@@ -643,6 +660,25 @@ app.event('app_home_opened', async ({ event, client }) => {
             text: {
               type: 'mrkdwn',
               text: '*Welcome to AI Assistant!* 🤖\n\nI\'m your intelligent AI assistant powered by GROK. I can help you with questions, provide information, and assist with various tasks.'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*AI Behavior Settings:*\nCustomize how I respond to you'
+            },
+            accessory: {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '⚙️ Configure'
+              },
+              action_id: 'configure_system_prompt_button',
+              value: 'configure_prompt'
             }
           },
           {
@@ -2767,6 +2803,253 @@ app.action(/^delete_channel_response_(.+)$/, async ({ ack, body, client, action 
     await client.chat.postMessage({
       channel: body.user.id,
       text: 'Sorry, there was an error deleting the channel auto-response. Please try again.'
+    });
+  }
+});
+
+// Configure system prompt button handler
+app.action('configure_system_prompt_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const userId = body.user.id;
+    
+    // Get existing system prompt if any
+    const existingPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+    
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'configure_system_prompt',
+        title: {
+          type: 'plain_text',
+          text: 'AI Behavior Settings'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Save Settings'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Customize how the AI assistant responds to you:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'tone',
+            element: {
+              type: 'static_select',
+              action_id: 'tone_select',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Select tone'
+              },
+              initial_option: existingPrompt?.tone ? {
+                text: {
+                  type: 'plain_text',
+                  text: existingPrompt.tone
+                },
+                value: existingPrompt.tone
+              } : undefined,
+              options: [
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Professional'
+                  },
+                  value: 'Professional'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Friendly'
+                  },
+                  value: 'Friendly'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Casual'
+                  },
+                  value: 'Casual'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Technical'
+                  },
+                  value: 'Technical'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Concise'
+                  },
+                  value: 'Concise'
+                }
+              ]
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Response Tone'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'business_type',
+            element: {
+              type: 'static_select',
+              action_id: 'business_select',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Select business type'
+              },
+              initial_option: existingPrompt?.businessType ? {
+                text: {
+                  type: 'plain_text',
+                  text: existingPrompt.businessType
+                },
+                value: existingPrompt.businessType
+              } : undefined,
+              options: [
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Technology'
+                  },
+                  value: 'Technology'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Manufacturing'
+                  },
+                  value: 'Manufacturing'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Healthcare'
+                  },
+                  value: 'Healthcare'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Finance'
+                  },
+                  value: 'Finance'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Education'
+                  },
+                  value: 'Education'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Retail'
+                  },
+                  value: 'Retail'
+                },
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Other'
+                  },
+                  value: 'Other'
+                }
+              ]
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Business Type'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'additional_directions',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'directions_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "Always provide code examples when discussing programming", "Focus on cost-benefit analysis", "Use industry-specific terminology"'
+              },
+              max_length: 1000,
+              initial_value: existingPrompt?.additionalDirections || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Additional Directions (Optional)'
+            },
+            optional: true
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening system prompt configuration modal:', error);
+  }
+});
+
+// Configure system prompt modal submission handler
+app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const userId = body.user.id;
+    const values = view.state.values;
+    
+    const tone = values.tone.tone_select.selected_option?.value;
+    const businessType = values.business_type.business_select.selected_option?.value;
+    const additionalDirections = values.additional_directions.directions_text.value?.trim() || '';
+    
+    if (!tone || !businessType) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Please select both tone and business type. Please try again.'
+      });
+      return;
+    }
+    
+    const promptData = {
+      tone: tone,
+      businessType: businessType,
+      additionalDirections: additionalDirections
+    };
+    
+    const success = await redisService.saveUserSystemPrompt(teamId, userId, promptData);
+    
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ AI behavior settings saved successfully!\n\n**Tone:** ${tone}\n**Business Type:** ${businessType}${additionalDirections ? `\n**Additional Directions:** ${additionalDirections}` : ''}\n\nThe AI will now use these settings in all future conversations.`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to save AI behavior settings. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing system prompt configuration:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error saving your AI behavior settings. Please try again.'
     });
   }
 });

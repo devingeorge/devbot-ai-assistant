@@ -592,6 +592,63 @@ class RedisService {
     }
   }
 
+  // User System Prompt Configuration Management
+  async saveUserSystemPrompt(teamId, userId, promptData) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot save user system prompt.');
+      return false;
+    }
+    try {
+      const key = `user_system_prompt:${teamId}:${userId}`;
+      
+      const promptWithMetadata = {
+        ...promptData,
+        userId: userId,
+        teamId: teamId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      await this.client.set(key, JSON.stringify(promptWithMetadata), 'EX', 86400 * 365); // 1 year TTL
+      console.log(`Saved system prompt for user ${userId} in team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error saving user system prompt:', error);
+      return false;
+    }
+  }
+
+  async getUserSystemPrompt(teamId, userId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot get user system prompt.');
+      return null;
+    }
+    try {
+      const key = `user_system_prompt:${teamId}:${userId}`;
+      const data = await this.client.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('Error getting user system prompt:', error);
+      return null;
+    }
+  }
+
+  async deleteUserSystemPrompt(teamId, userId) {
+    if (!this.isConnected) {
+      console.warn('Redis not connected, cannot delete user system prompt.');
+      return false;
+    }
+    try {
+      const key = `user_system_prompt:${teamId}:${userId}`;
+      await this.client.del(key);
+      console.log(`Deleted system prompt for user ${userId} in team: ${teamId}`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting user system prompt:', error);
+      return false;
+    }
+  }
+
   // Health check
   async healthCheck() {
     if (this.isMock) return true;
