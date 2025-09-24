@@ -222,8 +222,11 @@ app.event('assistant_thread_started', async ({ event, client }) => {
       return;
     }
     
-    // Get team ID from the event context
-    const teamId = event.team || 'unknown';
+    // Get team ID from the event context - try multiple sources
+    const teamId = event.team || event.assistant_thread?.team_id || 'unknown';
+    console.log('Event team:', event.team);
+    console.log('Assistant thread team_id:', event.assistant_thread?.team_id);
+    console.log('Final teamId:', teamId);
     
     // Get suggested prompts for this team
     const prompts = await redisService.getAllSuggestedPrompts(teamId);
@@ -236,7 +239,7 @@ app.event('assistant_thread_started', async ({ event, client }) => {
       try {
         const suggestedPrompts = enabledPrompts.map(prompt => ({
           title: prompt.buttonText,
-          prompt: prompt.messageText
+          message: prompt.messageText
         }));
         
         console.log('Setting suggested prompts:', suggestedPrompts);
