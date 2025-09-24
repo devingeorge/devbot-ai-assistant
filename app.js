@@ -866,87 +866,94 @@ app.view('add_suggested_prompt', async ({ ack, body, view, client }) => {
   }
 });
 
-// Helper function to update the view prompts modal
-async function updateViewPromptsModal(client, body, teamId) {
-  try {
-    const prompts = await redisService.getAllSuggestedPrompts(teamId);
-    
-    const blocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Suggested Prompts* (${prompts.length} total)`
-        }
-      },
-      {
-        type: 'divider'
+// Helper function to get view prompts blocks
+async function getViewPromptsBlocks(teamId) {
+  const prompts = await redisService.getAllSuggestedPrompts(teamId);
+  
+  const blocks = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Suggested Prompts* (${prompts.length} total)`
       }
-    ];
-    
-    if (prompts.length === 0) {
+    },
+    {
+      type: 'divider'
+    }
+  ];
+  
+  if (prompts.length === 0) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: 'No suggested prompts created yet. Click "Add Prompt" to create your first one!'
+      }
+    });
+  } else {
+    prompts.forEach((prompt, index) => {
+      const statusIcon = prompt.enabled === false ? '🔴' : '🟢';
+      const statusText = prompt.enabled === false ? 'Disabled' : 'Enabled';
+      
       blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: 'No suggested prompts created yet. Click "Add Prompt" to create your first one!'
+          text: `${statusIcon} *${prompt.buttonText}* (${statusText})\n_${prompt.messageText.substring(0, 100)}${prompt.messageText.length > 100 ? '...' : ''}_`
         }
       });
-    } else {
-      prompts.forEach((prompt, index) => {
-        const statusIcon = prompt.enabled === false ? '🔴' : '🟢';
-        const statusText = prompt.enabled === false ? 'Disabled' : 'Enabled';
-        
-        blocks.push({
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `${statusIcon} *${prompt.buttonText}* (${statusText})\n_${prompt.messageText.substring(0, 100)}${prompt.messageText.length > 100 ? '...' : ''}_`
+      
+      blocks.push({
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '✏️ Edit'
+            },
+            action_id: `edit_prompt_${prompt.id}`,
+            value: prompt.id
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: prompt.enabled === false ? '✅ Enable' : '⏸️ Disable'
+            },
+            action_id: `toggle_prompt_${prompt.id}`,
+            value: prompt.id,
+            style: prompt.enabled === false ? 'primary' : undefined
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🗑️ Delete'
+            },
+            action_id: `delete_prompt_${prompt.id}`,
+            value: prompt.id,
+            style: 'danger'
           }
-        });
-        
-        blocks.push({
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '✏️ Edit'
-              },
-              action_id: `edit_prompt_${prompt.id}`,
-              value: prompt.id
-            },
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: prompt.enabled === false ? '✅ Enable' : '⏸️ Disable'
-              },
-              action_id: `toggle_prompt_${prompt.id}`,
-              value: prompt.id,
-              style: prompt.enabled === false ? 'primary' : undefined
-            },
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '🗑️ Delete'
-              },
-              action_id: `delete_prompt_${prompt.id}`,
-              value: prompt.id,
-              style: 'danger'
-            }
-          ]
-        });
-        
-        if (index < prompts.length - 1) {
-          blocks.push({
-            type: 'divider'
-          });
-        }
+        ]
       });
-    }
+      
+      if (index < prompts.length - 1) {
+        blocks.push({
+          type: 'divider'
+        });
+      }
+    });
+  }
+  
+  return blocks;
+}
+
+// Helper function to update the view prompts modal
+async function updateViewPromptsModal(client, body, teamId) {
+  try {
+    const blocks = await getViewPromptsBlocks(teamId);
     
     await client.views.update({
       view_id: body.view.id,
@@ -1085,8 +1092,23 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
     const success = await redisService.updateSuggestedPrompt(teamId, promptId, updates);
     
     if (success) {
-      // Update the view prompts modal to reflect changes
-      await updateViewPromptsModal(client, body, teamId);
+      // Close the edit modal and update the underlying view prompts modal
+      await client.views.update({
+        view_id: view.id,
+        view: {
+          type: 'modal',
+          callback_id: 'view_suggested_prompts',
+          title: {
+            type: 'plain_text',
+            text: 'Suggested Prompts'
+          },
+          close: {
+            type: 'plain_text',
+            text: 'Close'
+          },
+          blocks: await getViewPromptsBlocks(teamId)
+        }
+      });
     } else {
       await client.chat.postMessage({
         channel: body.user.id,
