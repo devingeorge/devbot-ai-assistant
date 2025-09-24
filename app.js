@@ -1491,6 +1491,116 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client }) => {
   }
 });
 
+// Helper function to get view key-phrase responses blocks
+async function getViewKeyPhraseResponsesBlocks(teamId) {
+  const responses = await redisService.getAllKeyPhraseResponses(teamId);
+  
+  const blocks = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Key-Phrase Responses* (${responses.length} total)`
+      }
+    },
+    {
+      type: 'divider'
+    }
+  ];
+  
+  if (responses.length === 0) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: 'No key-phrase responses created yet. Click "Add Response" to create your first one!'
+      }
+    });
+  } else {
+    responses.forEach((response, index) => {
+      const statusIcon = response.enabled === false ? '🔴' : '🟢';
+      const statusText = response.enabled === false ? 'Disabled' : 'Enabled';
+      
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `${statusIcon} *${response.triggerPhrase}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+        }
+      });
+      
+      blocks.push({
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '✏️ Edit'
+            },
+            action_id: `edit_response_${response.id}`,
+            value: response.id
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: response.enabled === false ? '✅ Enable' : '⏸️ Disable'
+            },
+            action_id: `toggle_response_${response.id}`,
+            value: response.id,
+            style: response.enabled === false ? 'primary' : undefined
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🗑️ Delete'
+            },
+            action_id: `delete_response_${response.id}`,
+            value: response.id,
+            style: 'danger'
+          }
+        ]
+      });
+      
+      if (index < responses.length - 1) {
+        blocks.push({
+          type: 'divider'
+        });
+      }
+    });
+  }
+  
+  return blocks;
+}
+
+// Helper function to update the view key-phrase responses modal
+async function updateViewKeyPhraseResponsesModal(client, body, teamId) {
+  try {
+    const blocks = await getViewKeyPhraseResponsesBlocks(teamId);
+    
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        callback_id: 'view_key_phrase_responses',
+        title: {
+          type: 'plain_text',
+          text: 'Key-Phrase Responses'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Close'
+        },
+        blocks: blocks
+      }
+    });
+  } catch (error) {
+    console.error('Error updating view key-phrase responses modal:', error);
+  }
+}
+
 // View key-phrase responses button handler
 app.action('view_key_phrase_responses_button', async ({ ack, body, client }) => {
   await ack();
@@ -1498,85 +1608,7 @@ app.action('view_key_phrase_responses_button', async ({ ack, body, client }) => 
   try {
     const teamId = body.team?.id || body.user?.team_id || 'unknown';
     console.log('View key-phrase responses - teamId:', teamId);
-    const responses = await redisService.getAllKeyPhraseResponses(teamId);
-    console.log('View key-phrase responses - retrieved responses:', responses);
-    
-    const blocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Key-Phrase Responses* (${responses.length} total)`
-        }
-      },
-      {
-        type: 'divider'
-      }
-    ];
-    
-    if (responses.length === 0) {
-      blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: 'No key-phrase responses created yet. Click "Add Response" to create your first one!'
-        }
-      });
-    } else {
-      responses.forEach((response, index) => {
-        const statusIcon = response.enabled === false ? '🔴' : '🟢';
-        const statusText = response.enabled === false ? 'Disabled' : 'Enabled';
-        
-        blocks.push({
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `${statusIcon} *${response.triggerPhrase}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
-          }
-        });
-        
-        blocks.push({
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '✏️ Edit'
-              },
-              action_id: `edit_response_${response.id}`,
-              value: response.id
-            },
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: response.enabled === false ? '✅ Enable' : '⏸️ Disable'
-              },
-              action_id: `toggle_response_${response.id}`,
-              value: response.id,
-              style: response.enabled === false ? 'primary' : undefined
-            },
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '🗑️ Delete'
-              },
-              action_id: `delete_response_${response.id}`,
-              value: response.id,
-              style: 'danger'
-            }
-          ]
-        });
-        
-        if (index < responses.length - 1) {
-          blocks.push({
-            type: 'divider'
-          });
-        }
-      });
-    }
+    const blocks = await getViewKeyPhraseResponsesBlocks(teamId);
     
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -1623,7 +1655,7 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action }) => {
       return;
     }
     
-    await client.views.open({
+    await client.views.push({
       trigger_id: body.trigger_id,
       view: {
         type: 'modal',
@@ -1722,6 +1754,30 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client }) => {
     const success = await redisService.updateKeyPhraseResponse(teamId, responseId, updates);
     
     if (success) {
+      // Update the underlying view after a short delay to ensure the edit modal has closed
+      setTimeout(async () => {
+        try {
+          await client.views.update({
+            view_id: body.view.root_view_id,
+            view: {
+              type: 'modal',
+              callback_id: 'view_key_phrase_responses',
+              title: {
+                type: 'plain_text',
+                text: 'Key-Phrase Responses'
+              },
+              close: {
+                type: 'plain_text',
+                text: 'Close'
+              },
+              blocks: await getViewKeyPhraseResponsesBlocks(teamId)
+            }
+          });
+        } catch (updateError) {
+          console.error('Error updating view after edit:', updateError);
+        }
+      }, 500);
+      
       await client.chat.postMessage({
         channel: body.user.id,
         text: `✅ Key-phrase response "${triggerPhrase}" updated successfully!`
@@ -1762,6 +1818,9 @@ app.action(/^toggle_response_(.+)$/, async ({ ack, body, client, action }) => {
     const success = await redisService.updateKeyPhraseResponse(teamId, responseId, { enabled: newEnabled });
     
     if (success) {
+      // Update the modal to reflect the change
+      await updateViewKeyPhraseResponsesModal(client, body, teamId);
+      
       await client.chat.postMessage({
         channel: body.user.id,
         text: `✅ Response "${response.triggerPhrase}" ${newEnabled ? 'enabled' : 'disabled'} successfully!`
@@ -1792,6 +1851,9 @@ app.action(/^delete_response_(.+)$/, async ({ ack, body, client, action }) => {
     const success = await redisService.deleteKeyPhraseResponse(teamId, responseId);
     
     if (success) {
+      // Update the modal to reflect the change
+      await updateViewKeyPhraseResponsesModal(client, body, teamId);
+      
       await client.chat.postMessage({
         channel: body.user.id,
         text: '✅ Key-phrase response deleted successfully!'
