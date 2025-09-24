@@ -215,8 +215,9 @@ app.event('assistant_thread_started', async ({ event, client }) => {
   try {
     console.log('AI Assistant thread started:', event);
     
-    // Check if we have the required channel information
-    if (!event.channel) {
+    // Get channel ID from assistant_thread object
+    const channelId = event.assistant_thread?.channel_id;
+    if (!channelId) {
       console.log('No channel information in assistant_thread_started event');
       return;
     }
@@ -239,8 +240,8 @@ app.event('assistant_thread_started', async ({ event, client }) => {
         console.log('Setting suggested prompts:', suggestedPrompts);
         
         await client.assistant.threads.setSuggestedPrompts({
-          channel_id: event.channel,
-          thread_ts: event.thread_ts,
+          channel_id: channelId,
+          thread_ts: event.assistant_thread.thread_ts,
           prompts: suggestedPrompts
         });
         
@@ -253,8 +254,8 @@ app.event('assistant_thread_started', async ({ event, client }) => {
     
     // Post a welcome message in the AI Assistant thread
     await client.chat.postMessage({
-      channel: event.channel,
-      thread_ts: event.thread_ts,
+      channel: channelId,
+      thread_ts: event.assistant_thread.thread_ts,
       text: 'Hello! How can I help you today?'
     });
   } catch (error) {

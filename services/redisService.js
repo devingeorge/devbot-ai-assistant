@@ -261,7 +261,7 @@ class RedisService {
         updatedAt: new Date().toISOString()
       };
       
-      await this.client.setEx(key, 86400 * 365, JSON.stringify(promptWithId)); // 1 year TTL
+      await this.client.set(key, JSON.stringify(promptWithId), 'EX', 86400 * 365); // 1 year TTL
       console.log(`Saved suggested prompt ${promptId} for team: ${teamId}`);
       return promptId;
     } catch (error) {
@@ -335,7 +335,7 @@ class RedisService {
         updatedAt: new Date().toISOString()
       };
       
-      await this.client.setEx(key, 86400 * 365, JSON.stringify(updatedPrompt)); // 1 year TTL
+      await this.client.set(key, JSON.stringify(updatedPrompt), 'EX', 86400 * 365); // 1 year TTL
       console.log(`Updated suggested prompt ${promptId} for team: ${teamId}`);
       return true;
     } catch (error) {
