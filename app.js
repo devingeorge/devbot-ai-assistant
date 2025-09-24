@@ -264,6 +264,10 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       systemPrompt += `\n- Response tone: ${userSystemPrompt.tone}`;
       systemPrompt += `\n- Business context: ${userSystemPrompt.businessType}`;
       
+      if (userSystemPrompt.companyName) {
+        systemPrompt += `\n- Company: ${userSystemPrompt.companyName}`;
+      }
+      
       if (userSystemPrompt.additionalDirections) {
         systemPrompt += `\n- Additional directions: ${userSystemPrompt.additionalDirections}`;
       }
@@ -2979,6 +2983,25 @@ app.action('configure_system_prompt_button', async ({ ack, body, client }) => {
           },
           {
             type: 'input',
+            block_id: 'company_name',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'company_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., Acme Corp, TechStart Inc, Global Solutions'
+              },
+              max_length: 100,
+              initial_value: existingPrompt?.companyName || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Company Name (Optional)'
+            },
+            optional: true
+          },
+          {
+            type: 'input',
             block_id: 'additional_directions',
             element: {
               type: 'plain_text_input',
@@ -3016,6 +3039,7 @@ app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
     
     const tone = values.tone.tone_select.selected_option?.value;
     const businessType = values.business_type.business_select.selected_option?.value;
+    const companyName = values.company_name.company_text.value?.trim() || '';
     const additionalDirections = values.additional_directions.directions_text.value?.trim() || '';
     
     if (!tone || !businessType) {
@@ -3029,6 +3053,7 @@ app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
     const promptData = {
       tone: tone,
       businessType: businessType,
+      companyName: companyName,
       additionalDirections: additionalDirections
     };
     
@@ -3037,7 +3062,7 @@ app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
     if (success) {
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `✅ AI behavior settings saved successfully!\n\n**Tone:** ${tone}\n**Business Type:** ${businessType}${additionalDirections ? `\n**Additional Directions:** ${additionalDirections}` : ''}\n\nThe AI will now use these settings in all future conversations.`
+        text: `✅ AI behavior settings saved successfully!\n\n**Tone:** ${tone}\n**Business Type:** ${businessType}${companyName ? `\n**Company:** ${companyName}` : ''}${additionalDirections ? `\n**Additional Directions:** ${additionalDirections}` : ''}\n\nThe AI will now use these settings in all future conversations.`
       });
     } else {
       await client.chat.postMessage({
