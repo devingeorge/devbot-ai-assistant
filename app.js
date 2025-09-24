@@ -48,21 +48,115 @@ async function checkKeyPhraseResponse(message, teamId) {
   }
 }
 
+// Helper function to validate Block Kit structure
+function validateBlockKitStructure(blocks) {
+  if (!Array.isArray(blocks)) {
+    return { valid: false, error: 'Block Kit must be an array of blocks' };
+  }
+  
+  if (blocks.length === 0) {
+    return { valid: false, error: 'Block Kit array cannot be empty' };
+  }
+  
+  if (blocks.length > 50) {
+    return { valid: false, error: 'Block Kit cannot have more than 50 blocks' };
+  }
+  
+  const validBlockTypes = [
+    'section', 'divider', 'image', 'actions', 'context', 'input', 
+    'file', 'header', 'video', 'rich_text', 'call', 'workflow_step'
+  ];
+  
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    
+    if (!block.type) {
+      return { valid: false, error: `Block ${i + 1} is missing required 'type' field` };
+    }
+    
+    if (!validBlockTypes.includes(block.type)) {
+      return { valid: false, error: `Block ${i + 1} has invalid type '${block.type}'. Valid types: ${validBlockTypes.join(', ')}` };
+    }
+    
+    // Basic validation for common block types
+    if (block.type === 'section' && !block.text && !block.fields && !block.accessory) {
+      return { valid: false, error: `Section block ${i + 1} must have at least one of: text, fields, or accessory` };
+    }
+    
+    if (block.type === 'header' && !block.text) {
+      return { valid: false, error: `Header block ${i + 1} must have 'text' field` };
+    }
+    
+    if (block.type === 'actions' && (!block.elements || !Array.isArray(block.elements))) {
+      return { valid: false, error: `Actions block ${i + 1} must have 'elements' array` };
+    }
+  }
+  
+  return { valid: true };
+}
+
 // Helper function to send response (handles both plain text and Block Kit)
 async function sendKeyPhraseResponse(client, channel, responseText, threadTs = null) {
   try {
     // Try to parse as Block Kit JSON
     try {
-      const blocks = JSON.parse(responseText);
-      if (Array.isArray(blocks)) {
-        // It's valid Block Kit JSON
-        await client.chat.postMessage({
-          channel: channel,
-          text: 'Response',
-          blocks: blocks,
-          thread_ts: threadTs
-        });
-        return;
+      const parsed = JSON.parse(responseText);
+      
+      // Check if it's a valid Block Kit structure
+      if (Array.isArray(parsed)) {
+        const validation = validateBlockKitStructure(parsed);
+        
+        if (validation.valid) {
+          // It's valid Block Kit JSON
+          await client.chat.postMessage({
+            channel: channel,
+            text: 'Response',
+            blocks: parsed,
+            thread_ts: threadTs
+          });
+          return;
+        } else {
+          // Invalid Block Kit structure, send error message
+          await client.chat.postMessage({
+            channel: channel,
+            text: `❌ Invalid Block Kit structure: ${validation.error}\n\nFalling back to plain text response.`,
+            thread_ts: threadTs
+          });
+          
+          // Still send the original text as fallback
+          await client.chat.postMessage({
+            channel: channel,
+            text: responseText,
+            thread_ts: threadTs
+          });
+          return;
+        }
+      } else if (parsed && typeof parsed === 'object' && parsed.blocks && Array.isArray(parsed.blocks)) {
+        // Handle case where user wraps blocks in an object with 'blocks' property
+        const validation = validateBlockKitStructure(parsed.blocks);
+        
+        if (validation.valid) {
+          await client.chat.postMessage({
+            channel: channel,
+            text: parsed.text || 'Response',
+            blocks: parsed.blocks,
+            thread_ts: threadTs
+          });
+          return;
+        } else {
+          await client.chat.postMessage({
+            channel: channel,
+            text: `❌ Invalid Block Kit structure: ${validation.error}\n\nFalling back to plain text response.`,
+            thread_ts: threadTs
+          });
+          
+          await client.chat.postMessage({
+            channel: channel,
+            text: responseText,
+            thread_ts: threadTs
+          });
+          return;
+        }
       }
     } catch (parseError) {
       // Not valid JSON, treat as plain text
@@ -1418,7 +1512,7 @@ app.action('add_key_phrase_response_button', async ({ ack, body, client }) => {
               multiline: true,
               placeholder: {
                 type: 'plain_text',
-                text: 'e.g., "Great! How are you!" or use Block Kit JSON for rich responses'
+                text: 'Plain text: "Great! How are you!"\n\nBlock Kit JSON:\n[{"type":"section","text":{"type":"mrkdwn","text":"*Hello!* :wave:"}}]'
               },
               max_length: 2000
             },
@@ -1708,7 +1802,7 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action }) => {
               multiline: true,
               placeholder: {
                 type: 'plain_text',
-                text: 'e.g., "Great! How are you!" or use Block Kit JSON for rich responses'
+                text: 'Plain text: "Great! How are you!"\n\nBlock Kit JSON:\n[{"type":"section","text":{"type":"mrkdwn","text":"*Hello!* :wave:"}}]'
               },
               max_length: 2000,
               initial_value: response.responseText
