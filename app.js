@@ -211,7 +211,7 @@ app.command('/ai', async ({ command, ack, say, respond }) => {
 });
 
 // Listen to AI Assistant thread started events
-app.event('assistant_thread_started', async ({ event, client }) => {
+app.event('assistant_thread_started', async ({ event, client, context }) => {
   try {
     console.log('AI Assistant thread started:', event);
     
@@ -223,9 +223,10 @@ app.event('assistant_thread_started', async ({ event, client }) => {
     }
     
     // Get team ID from the event context - try multiple sources
-    const teamId = event.team || event.assistant_thread?.team_id || 'unknown';
+    const teamId = event.team || event.assistant_thread?.team_id || context?.teamId || 'unknown';
     console.log('Event team:', event.team);
     console.log('Assistant thread team_id:', event.assistant_thread?.team_id);
+    console.log('Context teamId:', context?.teamId);
     console.log('Final teamId:', teamId);
     
     // Get suggested prompts for this team
@@ -582,17 +583,43 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client }) => {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `*${prompt.buttonText}*\n_${prompt.messageText.substring(0, 100)}${prompt.messageText.length > 100 ? '...' : ''}_`
-          },
-          accessory: {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: 'Edit'
-            },
-            action_id: `edit_prompt_${prompt.id}`,
-            value: prompt.id
+            text: `*${prompt.buttonText}* ${prompt.enabled === false ? '(Disabled)' : ''}\n_${prompt.messageText.substring(0, 100)}${prompt.messageText.length > 100 ? '...' : ''}_`
           }
+        });
+        
+        blocks.push({
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '✏️ Edit'
+              },
+              action_id: `edit_prompt_${prompt.id}`,
+              value: prompt.id
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: prompt.enabled === false ? '✅ Enable' : '⏸️ Disable'
+              },
+              action_id: `toggle_prompt_${prompt.id}`,
+              value: prompt.id,
+              style: prompt.enabled === false ? 'primary' : 'default'
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '🗑️ Delete'
+              },
+              action_id: `delete_prompt_${prompt.id}`,
+              value: prompt.id,
+              style: 'danger'
+            }
+          ]
         });
         
         if (index < prompts.length - 1) {
@@ -907,21 +934,6 @@ app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action }) => {
               text: 'Message to Send'
             }
           },
-          {
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '🗑️ Delete Prompt'
-                },
-                action_id: 'delete_prompt_button',
-                style: 'danger',
-                value: promptId
-              }
-            ]
-          }
         ]
       }
     });
@@ -977,8 +989,48 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
   }
 });
 
+// Toggle suggested prompt enabled/disabled action handler
+app.action(/^toggle_prompt_(.+)$/, async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const promptId = action.value;
+    const prompt = await redisService.getSuggestedPrompt(teamId, promptId);
+    
+    if (!prompt) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Prompt not found. It may have been deleted.'
+      });
+      return;
+    }
+    
+    const newEnabled = !prompt.enabled;
+    const success = await redisService.updateSuggestedPrompt(teamId, promptId, { enabled: newEnabled });
+    
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Prompt "${prompt.buttonText}" ${newEnabled ? 'enabled' : 'disabled'} successfully!`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to update prompt status. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error toggling prompt:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error updating the prompt. Please try again.'
+    });
+  }
+});
+
 // Delete suggested prompt action handler
-app.action('delete_prompt_button', async ({ ack, body, client, action }) => {
+app.action(/^delete_prompt_(.+)$/, async ({ ack, body, client, action }) => {
   await ack();
   
   try {
