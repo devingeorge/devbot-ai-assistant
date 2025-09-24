@@ -481,11 +481,22 @@ app.event('assistant_thread_started', async ({ event, client, context }) => {
       console.log('No enabled prompts found for team:', teamId);
     }
     
+    // Get user-specific welcome message
+    const userId = event.assistant_thread?.user_id;
+    let welcomeMessage = 'Hello! How can I help you today?'; // Default message
+    
+    if (userId && teamId !== 'unknown') {
+      const userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+      if (userSystemPrompt?.welcomeMessage) {
+        welcomeMessage = userSystemPrompt.welcomeMessage;
+      }
+    }
+    
     // Post a welcome message in the AI Assistant thread
     await client.chat.postMessage({
       channel: channelId,
       thread_ts: event.assistant_thread.thread_ts,
-      text: 'Hello! How can I help you today?'
+      text: welcomeMessage
     });
   } catch (error) {
     console.error('Error handling assistant thread started:', error);
@@ -3019,6 +3030,25 @@ app.action('configure_system_prompt_button', async ({ ack, body, client }) => {
               text: 'Additional Directions (Optional)'
             },
             optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'welcome_message',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'welcome_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "Hi! I\'m your AI assistant. What can I help you with today?"'
+              },
+              max_length: 500,
+              initial_value: existingPrompt?.welcomeMessage || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Welcome Message (Optional)'
+            },
+            optional: true
           }
         ]
       }
@@ -3041,6 +3071,7 @@ app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
     const businessType = values.business_type.business_select.selected_option?.value;
     const companyName = values.company_name.company_text.value?.trim() || '';
     const additionalDirections = values.additional_directions.directions_text.value?.trim() || '';
+    const welcomeMessage = values.welcome_message.welcome_text.value?.trim() || '';
     
     if (!tone || !businessType) {
       await client.chat.postMessage({
@@ -3054,7 +3085,8 @@ app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
       tone: tone,
       businessType: businessType,
       companyName: companyName,
-      additionalDirections: additionalDirections
+      additionalDirections: additionalDirections,
+      welcomeMessage: welcomeMessage
     };
     
     const success = await redisService.saveUserSystemPrompt(teamId, userId, promptData);
@@ -3062,7 +3094,7 @@ app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
     if (success) {
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `✅ AI behavior settings saved successfully!\n\n**Tone:** ${tone}\n**Business Type:** ${businessType}${companyName ? `\n**Company:** ${companyName}` : ''}${additionalDirections ? `\n**Additional Directions:** ${additionalDirections}` : ''}\n\nThe AI will now use these settings in all future conversations.`
+        text: `✅ AI behavior settings saved successfully!\n\n**Tone:** ${tone}\n**Business Type:** ${businessType}${companyName ? `\n**Company:** ${companyName}` : ''}${welcomeMessage ? `\n**Welcome Message:** ${welcomeMessage}` : ''}${additionalDirections ? `\n**Additional Directions:** ${additionalDirections}` : ''}\n\nThe AI will now use these settings in all future conversations.`
       });
     } else {
       await client.chat.postMessage({
