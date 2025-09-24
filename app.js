@@ -1606,6 +1606,211 @@ app.action('view_key_phrase_responses_button', async ({ ack, body, client }) => 
   }
 });
 
+// Edit key-phrase response action handler
+app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const responseId = action.value;
+    const response = await redisService.getKeyPhraseResponse(teamId, responseId);
+    
+    if (!response) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Response not found. It may have been deleted.'
+      });
+      return;
+    }
+    
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'edit_key_phrase_response',
+        title: {
+          type: 'plain_text',
+          text: 'Edit Key-Phrase Response'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Update Response'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        private_metadata: responseId,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Edit your key-phrase response:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'trigger_phrase',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'trigger_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "how are you" or "hey*" (use * for wildcard)'
+              },
+              max_length: 100,
+              initial_value: response.triggerPhrase
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Trigger Phrase'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'response_text',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'response_text',
+              multiline: true,
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., "Great! How are you!" or use Block Kit JSON for rich responses'
+              },
+              max_length: 2000,
+              initial_value: response.responseText
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Response (Plain Text or Block Kit JSON)'
+            }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening edit response modal:', error);
+  }
+});
+
+// Edit key-phrase response modal submission handler
+app.view('edit_key_phrase_response', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const responseId = view.private_metadata;
+    const values = view.state.values;
+    
+    const triggerPhrase = values.trigger_phrase.trigger_text.value;
+    const responseText = values.response_text.response_text.value;
+    
+    if (!triggerPhrase || !responseText) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Both trigger phrase and response are required. Please try again.'
+      });
+      return;
+    }
+    
+    const updates = {
+      triggerPhrase: triggerPhrase.trim(),
+      responseText: responseText.trim()
+    };
+    
+    const success = await redisService.updateKeyPhraseResponse(teamId, responseId, updates);
+    
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Key-phrase response "${triggerPhrase}" updated successfully!`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to update key-phrase response. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing key-phrase response update:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error updating the key-phrase response. Please try again.'
+    });
+  }
+});
+
+// Toggle key-phrase response enabled/disabled action handler
+app.action(/^toggle_response_(.+)$/, async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const responseId = action.value;
+    const response = await redisService.getKeyPhraseResponse(teamId, responseId);
+    
+    if (!response) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Response not found. It may have been deleted.'
+      });
+      return;
+    }
+    
+    const newEnabled = !response.enabled;
+    const success = await redisService.updateKeyPhraseResponse(teamId, responseId, { enabled: newEnabled });
+    
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Response "${response.triggerPhrase}" ${newEnabled ? 'enabled' : 'disabled'} successfully!`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to update response status. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error toggling response:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error updating the response. Please try again.'
+    });
+  }
+});
+
+// Delete key-phrase response action handler
+app.action(/^delete_response_(.+)$/, async ({ ack, body, client, action }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const responseId = action.value;
+    
+    const success = await redisService.deleteKeyPhraseResponse(teamId, responseId);
+    
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '✅ Key-phrase response deleted successfully!'
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to delete key-phrase response. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting key-phrase response:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error deleting the key-phrase response. Please try again.'
+    });
+  }
+});
+
 // List integrations command
 app.command('/integrations', async ({ command, ack, respond }) => {
   await ack();
