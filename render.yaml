@@ -14,12 +14,6 @@ services:
       sync: false
     - key: REDIS_URL
       sync: false
-    - key: SALESFORCE_CLIENT_ID
-      sync: false
-    - key: SALESFORCE_CLIENT_SECRET
-      sync: false
-    - key: SALESFORCE_REDIRECT_URL
-      sync: false
     - key: PORT
       value: 10000
 

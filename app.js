@@ -1,5 +1,4 @@
 const { App } = require('@slack/bolt');
-const express = require('express');
 const axios = require('axios');
 const redisService = require('./services/redisService');
 const integrationService = require('./services/integrationService');
@@ -3321,7 +3320,7 @@ app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
   }
 });
 
-// Connect Salesforce button handler
+// Setup Salesforce button handler
 app.action('connect_salesforce_button', async ({ ack, body, client }) => {
   await ack();
   
@@ -3329,108 +3328,171 @@ app.action('connect_salesforce_button', async ({ ack, body, client }) => {
     const teamId = body.team?.id || body.user?.team_id || 'unknown';
     const userId = body.user.id;
     
-    // Check if user already has Salesforce connected
+    // Check if user already has Salesforce configured
     const existingTokens = await redisService.getSalesforceTokens(teamId, userId);
     
     if (existingTokens) {
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `✅ You already have Salesforce connected!\n\n**Org:** ${existingTokens.instance_url}\n**Connected:** ${new Date(existingTokens.createdAt).toLocaleDateString()}\n\nTo disconnect, use the command: \`/disconnect-salesforce\``
+        text: `✅ You already have Salesforce configured!\n\n**Org:** ${existingTokens.instance_url}\n**Configured:** ${new Date(existingTokens.createdAt).toLocaleDateString()}\n\nTo reconfigure, use the command: \`/disconnect-salesforce\``
       });
       return;
     }
     
-    // Generate OAuth URL
-    const clientId = process.env.SALESFORCE_CLIENT_ID;
-    const redirectUri = process.env.SALESFORCE_REDIRECT_URL;
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'salesforce_setup',
+        title: {
+          type: 'plain_text',
+          text: 'Setup Salesforce'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Save Configuration'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Configure your Salesforce integration:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'instance_url',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'instance_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'e.g., https://yourcompany.my.salesforce.com'
+              },
+              initial_value: existingTokens?.instance_url || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Salesforce Instance URL'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'access_token',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'token_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Your Salesforce access token'
+              },
+              initial_value: existingTokens?.access_token || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Access Token'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'refresh_token',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'refresh_text',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Your Salesforce refresh token (optional)'
+              },
+              initial_value: existingTokens?.refresh_token || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Refresh Token (Optional)'
+            },
+            optional: true
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*How to get your tokens:*\n1. Go to Salesforce Setup → Apps → App Manager\n2. Create a Connected App with OAuth settings\n3. Use the OAuth flow to get your access token\n4. Copy the instance URL and tokens here'
+            }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening Salesforce setup modal:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error opening the Salesforce setup. Please try again.'
+    });
+  }
+});
+
+// Salesforce setup modal submission handler
+app.view('salesforce_setup', async ({ ack, body, view, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const userId = body.user.id;
+    const values = view.state.values;
     
-    if (!clientId || !redirectUri) {
+    const instanceUrl = values.instance_url.instance_text.value?.trim();
+    const accessToken = values.access_token.token_text.value?.trim();
+    const refreshToken = values.refresh_token.refresh_text.value?.trim() || '';
+    
+    if (!instanceUrl || !accessToken) {
       await client.chat.postMessage({
         channel: body.user.id,
-        text: '❌ Salesforce integration is not configured. Please contact your administrator.'
+        text: '❌ Please provide both instance URL and access token. Please try again.'
       });
       return;
     }
     
-    const oauthUrl = `https://login.salesforce.com/services/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=api+refresh_token+full&state=${teamId}:${userId}`;
-    
-    await client.chat.postMessage({
-      channel: body.user.id,
-      text: `🔗 **Connect to Salesforce**\n\nClick the link below to connect your Salesforce org:\n\n${oauthUrl}\n\nAfter connecting, you'll be able to:\n• Create leads, opportunities, and accounts\n• Update records and create tasks\n• Query your Salesforce data\n• Get AI-powered insights from your CRM data`
-    });
-  } catch (error) {
-    console.error('Error handling Salesforce connection:', error);
-    await client.chat.postMessage({
-      channel: body.user.id,
-      text: 'Sorry, there was an error connecting to Salesforce. Please try again.'
-    });
-  }
-});
-
-// Create Express app for OAuth callbacks
-const expressApp = express();
-expressApp.use(express.json());
-
-// Salesforce OAuth callback handler
-expressApp.get('/oauth/salesforce/callback', async (req, res) => {
-  try {
-    const { code, state } = req.query;
-    
-    if (!code || !state) {
-      return res.status(400).send('Missing authorization code or state');
+    // Validate the instance URL format
+    if (!instanceUrl.startsWith('https://') || !instanceUrl.includes('.salesforce.com')) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Invalid instance URL format. Please use: https://yourcompany.my.salesforce.com'
+      });
+      return;
     }
     
-    const [teamId, userId] = state.split(':');
-    
-    // Exchange code for tokens
-    const tokenResponse = await axios.post('https://login.salesforce.com/services/oauth2/token', {
-      grant_type: 'authorization_code',
-      client_id: process.env.SALESFORCE_CLIENT_ID,
-      client_secret: process.env.SALESFORCE_CLIENT_SECRET,
-      redirect_uri: process.env.SALESFORCE_REDIRECT_URL,
-      code: code
-    });
-    
     const tokenData = {
-      access_token: tokenResponse.data.access_token,
-      refresh_token: tokenResponse.data.refresh_token,
-      instance_url: tokenResponse.data.instance_url,
-      id: tokenResponse.data.id
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      instance_url: instanceUrl,
+      id: `manual_${Date.now()}`
     };
     
-    // Save tokens to Redis
-    await redisService.saveSalesforceTokens(teamId, userId, tokenData);
+    const success = await redisService.saveSalesforceTokens(teamId, userId, tokenData);
     
-    res.send(`
-      <html>
-        <body>
-          <h2>✅ Salesforce Connected Successfully!</h2>
-          <p>You can now close this window and return to Slack.</p>
-          <p>Your AI assistant can now help you with Salesforce operations!</p>
-          <script>
-            setTimeout(() => {
-              window.close();
-            }, 3000);
-          </script>
-        </body>
-      </html>
-    `);
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ Salesforce integration configured successfully!\n\n**Instance:** ${instanceUrl}\n\nYou can now:\n• Create leads, opportunities, and accounts\n• Update records and create tasks\n• Query your Salesforce data\n• Get AI-powered insights from your CRM data`
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Failed to save Salesforce configuration. Please try again.'
+      });
+    }
   } catch (error) {
-    console.error('Salesforce OAuth callback error:', error);
-    res.status(500).send(`
-      <html>
-        <body>
-          <h2>❌ Connection Failed</h2>
-          <p>There was an error connecting to Salesforce. Please try again.</p>
-          <p>Error: ${error.message}</p>
-        </body>
-      </html>
-    `);
+    console.error('Error processing Salesforce setup:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error saving your Salesforce configuration. Please try again.'
+    });
   }
 });
-
-// Mount Express app on the Slack Bolt receiver
-app.receiver.app.use('/', expressApp);
 
 // Disconnect Salesforce command
 app.command('/disconnect-salesforce', async ({ command, ack, respond }) => {
