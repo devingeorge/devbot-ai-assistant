@@ -1104,7 +1104,7 @@ app.event('app_home_opened', async ({ event, client, context }) => {
       if (jiraCredentials) {
         jiraStatus = '✅ Configured';
         jiraButtonText = '🔧 Manage Jira';
-        jiraButtonStyle = 'default';
+        jiraButtonStyle = null; // Remove style for configured state
         console.log('Jira status updated to: Configured');
       } else {
         console.log('Jira status remains: Not Configured');
@@ -1254,7 +1254,7 @@ app.event('app_home_opened', async ({ event, client, context }) => {
                   text: jiraButtonText
                 },
                 action_id: 'setup_jira_button',
-                style: jiraButtonStyle
+                ...(jiraButtonStyle && { style: jiraButtonStyle })
               },
               {
                 type: 'button',
