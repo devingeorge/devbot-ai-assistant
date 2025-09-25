@@ -203,13 +203,25 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
 }
 
 // Handle Salesforce requests
-async function handleSalesforceRequest(message, tokens, userId) {
+async function handleSalesforceRequest(message, tokens, userId, conversationHistory = []) {
   try {
     const lowerMessage = message.toLowerCase();
     
-    // Check for Lead creation
-    if (lowerMessage.includes('create lead') || lowerMessage.includes('new lead')) {
-      const leadData = extractLeadData(message);
+    // Build full conversation context for better detection
+    const fullConversation = conversationHistory.map(msg => msg.content).join(' ') + ' ' + message;
+    const lowerFullConversation = fullConversation.toLowerCase();
+    
+    // Check for Lead creation - be more flexible with detection
+    if (lowerMessage.includes('create lead') || 
+        lowerMessage.includes('new lead') || 
+        lowerMessage.includes('lead for') ||
+        lowerMessage.includes('please create it') ||
+        (lowerMessage.includes('lead') && lowerMessage.includes('salesforce')) ||
+        lowerFullConversation.includes('create a lead')) {
+      
+      const leadData = extractLeadData(fullConversation);
+      console.log('Creating lead with data:', leadData);
+      
       const result = await salesforceService.createLead(leadData, tokens.access_token);
       
       if (result.success) {
@@ -282,16 +294,29 @@ function extractLeadData(message) {
     Status: 'Open - Not Contacted'
   };
   
-  // Try to extract company name
-  const companyMatch = message.match(/(?:for|at|company)\s+([A-Za-z0-9\s&.,-]+)/i);
-  if (companyMatch) {
-    leadData.Company = companyMatch[1].trim();
+  // Try to extract contact name (look for "for [Name]" pattern)
+  const nameMatch = message.match(/for\s+([A-Za-z\s]+?)(?:\s+in\s+Salesforce|\s+with\s+email|\s+is\s+his|\s+is\s+her|$)/i);
+  if (nameMatch) {
+    const fullName = nameMatch[1].trim();
+    const nameParts = fullName.split(' ');
+    if (nameParts.length >= 2) {
+      leadData.FirstName = nameParts[0];
+      leadData.LastName = nameParts.slice(1).join(' ');
+    } else {
+      leadData.LastName = fullName;
+    }
   }
   
-  // Try to extract contact name
-  const nameMatch = message.match(/(?:contact|person|lead)\s+([A-Za-z\s]+)/i);
-  if (nameMatch) {
-    leadData.LastName = nameMatch[1].trim();
+  // Try to extract email address
+  const emailMatch = message.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+  if (emailMatch) {
+    leadData.Email = emailMatch[1];
+  }
+  
+  // Try to extract company name
+  const companyMatch = message.match(/(?:company|at|for)\s+([A-Za-z0-9\s&.,-]+?)(?:\s+with\s+email|\s+is\s+his|\s+is\s+her|$)/i);
+  if (companyMatch) {
+    leadData.Company = companyMatch[1].trim();
   }
   
   return leadData;
@@ -432,8 +457,8 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       // Set the Salesforce instance URL
       salesforceService.setInstanceUrl(salesforceTokens.instance_url);
       
-      // Check for Salesforce operations
-      const salesforceResult = await handleSalesforceRequest(message, salesforceTokens, userId);
+      // Check for Salesforce operations - pass conversation history for context
+      const salesforceResult = await handleSalesforceRequest(message, salesforceTokens, userId, conversationHistory);
       if (salesforceResult) {
         return salesforceResult;
       }
