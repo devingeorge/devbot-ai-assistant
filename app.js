@@ -1441,14 +1441,15 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
   await ack();
   
   try {
-    // FORCE consistent team ID - use the same team ID that App Home uses
-    // Based on logs, App Home consistently uses T06HQGPEVBL
+    // Multi-tenant team ID resolution for enterprise installs
     let teamId = context.teamId || body.team?.id || 'unknown';
     
-    // If we're in an enterprise install and getting different team IDs, force the correct one
-    if (context.enterpriseId === 'E06HT01TVFW' && teamId !== 'T06HQGPEVBL') {
-      teamId = 'T06HQGPEVBL';
-      console.log('Enterprise install detected - forcing team ID to T06HQGPEVBL');
+    // For enterprise installs, ensure consistent team ID across devices
+    // If context.teamId is the enterprise ID, we need to find the actual team ID
+    if (context.isEnterpriseInstall && context.teamId === context.enterpriseId) {
+      // In enterprise installs, use the team ID from the body or context
+      teamId = body.team?.id || context.teamId;
+      console.log('Enterprise install detected - using team ID from body:', teamId);
     }
     
     console.log('View prompts - teamId:', teamId);
@@ -2345,13 +2346,13 @@ app.action('view_key_phrase_responses_button', async ({ ack, body, client, conte
   await ack();
   
   try {
-    // FORCE consistent team ID - use the same team ID that App Home uses
+    // Multi-tenant team ID resolution for enterprise installs
     let teamId = context.teamId || body.team?.id || 'unknown';
     
-    // If we're in an enterprise install and getting different team IDs, force the correct one
-    if (context.enterpriseId === 'E06HT01TVFW' && teamId !== 'T06HQGPEVBL') {
-      teamId = 'T06HQGPEVBL';
-      console.log('Enterprise install detected - forcing team ID to T06HQGPEVBL');
+    // For enterprise installs, ensure consistent team ID across devices
+    if (context.isEnterpriseInstall && context.teamId === context.enterpriseId) {
+      teamId = body.team?.id || context.teamId;
+      console.log('Enterprise install detected - using team ID from body:', teamId);
     }
     
     console.log('View key-phrase responses - teamId:', teamId);
@@ -3469,8 +3470,7 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
   await ack();
 
   try {
-    // FORCE consistent team ID: In enterprise installs, modal submissions get Enterprise ID in context.teamId
-    // but we need to use the same team ID that App Home/manage handlers use
+    // Multi-tenant team ID resolution for enterprise installs
     console.log('Full modal submission context and body:', {
       contextTeamId: context.teamId,
       contextEnterpriseId: context.enterpriseId,
@@ -3483,12 +3483,10 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
     
     let teamId = context.teamId;
     
-    // If context.teamId matches enterpriseId, it means we got Enterprise ID instead of Team ID
-    // Based on logs, App Home consistently gets T06HQGPEVBL while modal gets E06HT01TVFW
-    if (context.teamId === context.enterpriseId && context.enterpriseId === 'E06HT01TVFW') {
-      // Hardcode the correct team ID for this enterprise install
-      teamId = 'T06HQGPEVBL';
-      console.log('Enterprise install detected - using hardcoded team ID:', {
+    // For enterprise installs, ensure consistent team ID across devices
+    if (context.isEnterpriseInstall && context.teamId === context.enterpriseId) {
+      teamId = body.team?.id || context.teamId;
+      console.log('Enterprise install detected - using team ID from body:', {
         originalTeamId: context.teamId,
         enterpriseId: context.enterpriseId,
         correctedTeamId: teamId
