@@ -3423,6 +3423,8 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
 
 // Add Monitored Channel modal submission
 app.view('add_monitored_channel', async ({ ack, body, client, view, context }) => {
+  console.log('Add monitored channel modal submitted');
+  console.log('View state values:', JSON.stringify(view.state.values, null, 2));
   await ack();
 
   try {

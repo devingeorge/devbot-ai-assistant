@@ -235,6 +235,7 @@ function addMonitoredChannelModal() {
       },
       {
         type: 'section',
+        block_id: 'channel_select',
         text: {
           type: 'mrkdwn',
           text: '*Channel*',
@@ -250,6 +251,7 @@ function addMonitoredChannelModal() {
       },
       {
         type: 'section',
+        block_id: 'response_type',
         text: {
           type: 'mrkdwn',
           text: '*Response Type*',
@@ -276,6 +278,7 @@ function addMonitoredChannelModal() {
       },
       {
         type: 'section',
+        block_id: 'auto_jira_tickets',
         text: {
           type: 'mrkdwn',
           text: '*Auto-Create Jira Tickets*',
@@ -437,6 +440,7 @@ function editMonitoredChannelModal(channel) {
       },
       {
         type: 'section',
+        block_id: 'response_type',
         text: {
           type: 'mrkdwn',
           text: '*Response Type*',
@@ -470,6 +474,7 @@ function editMonitoredChannelModal(channel) {
       },
       {
         type: 'section',
+        block_id: 'auto_jira_tickets',
         text: {
           type: 'mrkdwn',
           text: '*Auto-Create Jira Tickets*',
