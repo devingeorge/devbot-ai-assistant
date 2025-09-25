@@ -3829,6 +3829,19 @@ app.error((error) => {
     
     console.log('✅ Salesforce integration configured for multi-tenant setup');
 
+    // Add temporary Redis clear endpoint (remove after use)
+    if (app.receiver && app.receiver.router) {
+      app.receiver.router.get('/clear-redis', async (req, res) => {
+        try {
+          await redisService.client.flushall();
+          res.send('✅ Redis data cleared successfully!');
+        } catch (error) {
+          res.status(500).send(`❌ Error clearing Redis: ${error.message}`);
+        }
+      });
+      console.log('✅ Redis clear endpoint added at /clear-redis');
+    }
+
     // Graceful shutdown handling
     const shutdown = async (signal) => {
       try {
