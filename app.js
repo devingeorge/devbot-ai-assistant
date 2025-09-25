@@ -1441,8 +1441,21 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
   await ack();
   
   try {
-    const teamId = context.teamId || body.team?.id || 'unknown';
+    // FORCE consistent team ID - use the same team ID that App Home uses
+    // Based on logs, App Home consistently uses T06HQGPEVBL
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    
+    // If we're in an enterprise install and getting different team IDs, force the correct one
+    if (context.enterpriseId === 'E06HT01TVFW' && teamId !== 'T06HQGPEVBL') {
+      teamId = 'T06HQGPEVBL';
+      console.log('Enterprise install detected - forcing team ID to T06HQGPEVBL');
+    }
+    
     console.log('View prompts - teamId:', teamId);
+    console.log('View prompts - context.teamId:', context.teamId);
+    console.log('View prompts - body.team?.id:', body.team?.id);
+    console.log('View prompts - body.user?.team_id:', body.user?.team_id);
+    console.log('View prompts - context.enterpriseId:', context.enterpriseId);
     const prompts = await redisService.getAllSuggestedPrompts(teamId);
     console.log('View prompts - retrieved prompts:', prompts);
     
@@ -2332,8 +2345,19 @@ app.action('view_key_phrase_responses_button', async ({ ack, body, client, conte
   await ack();
   
   try {
-    const teamId = context.teamId || body.team?.id || 'unknown';
+    // FORCE consistent team ID - use the same team ID that App Home uses
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    
+    // If we're in an enterprise install and getting different team IDs, force the correct one
+    if (context.enterpriseId === 'E06HT01TVFW' && teamId !== 'T06HQGPEVBL') {
+      teamId = 'T06HQGPEVBL';
+      console.log('Enterprise install detected - forcing team ID to T06HQGPEVBL');
+    }
+    
     console.log('View key-phrase responses - teamId:', teamId);
+    console.log('View key-phrase responses - context.teamId:', context.teamId);
+    console.log('View key-phrase responses - body.team?.id:', body.team?.id);
+    console.log('View key-phrase responses - context.enterpriseId:', context.enterpriseId);
     const blocks = await getViewKeyPhraseResponsesBlocks(teamId);
     
     await client.views.open({
