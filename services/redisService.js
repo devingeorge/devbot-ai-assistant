@@ -64,12 +64,14 @@ class RedisService {
     this.isConnected = false;
     this.client = {
       setex: () => Promise.resolve(),
+      set: () => Promise.resolve(),
       get: () => Promise.resolve(null),
       del: () => Promise.resolve(),
       keys: () => Promise.resolve([]),
       rpush: () => Promise.resolve(),
       ltrim: () => Promise.resolve(),
       expire: () => Promise.resolve(),
+      incr: () => Promise.resolve(1),
       lrange: () => Promise.resolve([]),
       quit: () => Promise.resolve(),
       ping: () => Promise.resolve('PONG'),
@@ -837,6 +839,67 @@ class RedisService {
     } catch (error) {
       console.error('Redis health check failed:', error);
       return false;
+    }
+  }
+
+  // Convenience methods for basic Redis operations
+  async set(key, value, ttl) {
+    if (this.isMock) {
+      console.log(`Mock Redis - set key: ${key}`);
+      return Promise.resolve('OK');
+    }
+    
+    try {
+      if (ttl) {
+        return await this.client.setex(key, ttl, value);
+      } else {
+        return await this.client.set(key, value);
+      }
+    } catch (error) {
+      console.error('Error setting key:', error);
+      throw error;
+    }
+  }
+
+  async get(key) {
+    if (this.isMock) {
+      console.log(`Mock Redis - get key: ${key}`);
+      return Promise.resolve(null);
+    }
+    
+    try {
+      return await this.client.get(key);
+    } catch (error) {
+      console.error('Error getting key:', error);
+      throw error;
+    }
+  }
+
+  async incr(key) {
+    if (this.isMock) {
+      console.log(`Mock Redis - incr key: ${key}`);
+      return Promise.resolve(1);
+    }
+    
+    try {
+      return await this.client.incr(key);
+    } catch (error) {
+      console.error('Error incrementing key:', error);
+      throw error;
+    }
+  }
+
+  async expire(key, seconds) {
+    if (this.isMock) {
+      console.log(`Mock Redis - expire key: ${key}, seconds: ${seconds}`);
+      return Promise.resolve(1);
+    }
+    
+    try {
+      return await this.client.expire(key, seconds);
+    } catch (error) {
+      console.error('Error setting expiration:', error);
+      throw error;
     }
   }
 
