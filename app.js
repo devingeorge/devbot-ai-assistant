@@ -3,6 +3,7 @@ const axios = require('axios');
 const redisService = require('./services/redisService');
 const integrationService = require('./services/integrationService');
 const salesforceService = require('./services/salesforceService');
+const channelMonitoring = require('./services/channelMonitoring');
 require('dotenv').config();
 
 // Initialize your app with your bot token and signing secret
@@ -913,6 +914,166 @@ app.event('message', async ({ event, say, client, context }) => {
       await say('Sorry, I encountered an error processing your request. Please try again.');
     }
   }
+  // Handle channel messages - check for monitored channels
+  else if (event.channel_type === 'channel') {
+    try {
+      // Skip system messages but allow bot messages
+      const systemSubtypes = ['channel_join', 'channel_leave', 'channel_topic', 'channel_purpose', 'channel_name', 'channel_archive', 'channel_unarchive', 'pinned_item', 'unpinned_item'];
+      if (systemSubtypes.includes(event.subtype)) return;
+      if (!event.text) return;
+
+      // Skip messages from the bot itself to prevent loops
+      if (event.bot_id) return;
+
+      const team = context.teamId || event.team;
+      const channel = event.channel;
+      const user = event.user;
+      const userText = String(event.text || '').slice(0, 4000);
+
+      console.log('Processing message in channel:', {
+        team,
+        channel,
+        user,
+        subtype: event.subtype,
+        bot_id: event.bot_id,
+        hasText: !!event.text,
+        textPreview: userText.substring(0, 50)
+      });
+
+      // Check if this channel is being monitored
+      const monitoredChannel = await channelMonitoring.isChannelMonitored(team, channel);
+      if (!monitoredChannel) {
+        return; // Channel is not being monitored
+      }
+
+      console.log('Processing message in monitored channel:', {
+        team,
+        channel,
+        user,
+        responseType: monitoredChannel.responseType
+      });
+
+      // Build system prompt based on response type
+      let systemPrompt;
+      switch (monitoredChannel.responseType) {
+        case 'analytical':
+          systemPrompt = `You are an analytical assistant monitoring this channel. Analyze the recent message for insights, patterns, and key points. Provide thoughtful analysis in a thread reply. Keep responses concise and focused on actionable insights.`;
+          break;
+        case 'summary':
+          systemPrompt = `You are a summarization assistant monitoring this channel. Provide a concise summary of the recent message and its context. Keep summaries brief and highlight key points.`;
+          break;
+        case 'questions':
+          systemPrompt = `You are a facilitation assistant monitoring this channel. Ask thoughtful, clarifying questions about the recent message to help facilitate better discussion. Focus on questions that add value and encourage deeper thinking.`;
+          break;
+        case 'insights':
+          systemPrompt = `You are an insights assistant monitoring this channel. Share observations and actionable insights about the recent message. Focus on practical takeaways and next steps.`;
+          break;
+        default:
+          systemPrompt = `You are monitoring this channel and responding to messages. Provide a helpful response based on the recent message.`;
+      }
+
+      // Get recent messages for context
+      let recentMessages = [];
+      try {
+        const hist = await client.conversations.history({
+          channel: channel,
+          limit: 10
+        });
+        if (hist.ok && hist.messages.length) {
+          recentMessages = hist.messages;
+        }
+      } catch (error) {
+        console.log('Error getting recent messages:', error);
+      }
+
+      // Build context from recent messages
+      const contextText = recentMessages.length > 0
+        ? recentMessages.slice(-5).map(m => `${m.user}: ${m.text}`).join('\n')
+        : userText;
+
+      // Create conversation history for channel monitoring
+      let conversationHistory = [];
+      for (const message of recentMessages) {
+        if (message.ts === event.ts) continue; // Skip current message
+        const role = message.bot_id ? 'assistant' : 'user';
+        conversationHistory.push({
+          role: role,
+          content: message.text || ''
+        });
+      }
+      conversationHistory = conversationHistory.reverse(); // Reverse to get chronological order
+
+      // Add current user message
+      conversationHistory.push({
+        role: 'user',
+        content: userText
+      });
+
+      // Get AI response with conversation context
+      const aiResponse = await callGrokAPI(userText + '\n\n' + systemPrompt, user, conversationHistory, team);
+
+      // Respond in thread to keep main channel clean
+      await client.chat.postMessage({
+        channel: channel,
+        thread_ts: event.ts, // Reply in thread
+        text: aiResponse,
+        unfurl_links: false,
+        unfurl_media: false
+      });
+
+      // Check if we should create a Jira ticket (after 1st bot response)
+      console.log('Checking auto-Jira ticket creation:', {
+        autoCreateJiraTickets: monitoredChannel.autoCreateJiraTickets,
+        team,
+        channel,
+        threadTs: event.ts
+      });
+
+      if (monitoredChannel.autoCreateJiraTickets) {
+        const responseCount = await channelMonitoring.incrementThreadResponseCount(team, channel, event.ts);
+
+        console.log('Thread response count:', {
+          team,
+          channel,
+          threadTs: event.ts,
+          responseCount
+        });
+
+        if (responseCount === 1) {
+          console.log('Creating auto Jira ticket after 1st bot response:', { team, channel, threadTs: event.ts });
+
+          try {
+            // Create a summary for the Jira ticket
+            const ticketDescription = `Auto-generated ticket from monitored channel #${monitoredChannel.channelName}\n\nThread started by: ${userText}\nResponse Type: ${monitoredChannel.responseType}\n\nThis ticket was automatically created after the bot's 1st response in the thread to track ongoing discussion and ensure follow-up.`;
+
+            // For now, create a simple ticket structure since we need Jira integration functions
+            const ticketData = {
+              summary: `Discussion in #${monitoredChannel.channelName}`.substring(0, 200),
+              description: ticketDescription,
+              issueType: 'Task',
+              priority: 'Medium',
+            };
+
+            console.log('Ticket data for auto-Jira creation:', ticketData);
+
+            // Post a placeholder message about the ticket (real Jira integration would go here)
+            await client.chat.postMessage({
+              channel: channel,
+              thread_ts: event.ts,
+              text: `🎫 *Auto-Jira Ticket*\n\nA Jira ticket would be created here to track this discussion.\n\nSummary: ${ticketData.summary}\nResponse Type: ${monitoredChannel.responseType}`
+            });
+
+            console.log('Auto Jira ticket placeholder created successfully');
+          } catch (error) {
+            console.error('Error creating auto Jira ticket:', error);
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('Error processing monitored channel message:', error);
+    }
+  }
 });
 
 // Home tab handler
@@ -1086,6 +1247,38 @@ app.event('app_home_opened', async ({ event, client }) => {
                   text: '❓ Help'
                 },
                 action_id: 'help_button'
+              }
+            ]
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Channel Monitoring:*\nMonitor channels and get AI responses based on message content'
+            },
+            accessory: {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '➕ Add Channel Monitor'
+              },
+              action_id: 'add_monitored_channel',
+              style: 'primary'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '⚙️ Manage Monitored Channels'
+                },
+                action_id: 'manage_monitored_channels'
               }
             ]
           }
@@ -3077,6 +3270,226 @@ app.command('/integrations', async ({ command, ack, respond }) => {
 app.use(async ({ next }) => {
   console.log('Processing Slack request...');
   await next();
+});
+
+// ============================================================================
+// CHANNEL MONITORING ACTION HANDLERS
+// ============================================================================
+
+// Add Monitored Channel button
+app.action('add_monitored_channel', async ({ ack, body, client }) => {
+  await ack();
+
+  try {
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: channelMonitoring.addMonitoredChannelModal()
+    });
+  } catch (error) {
+    console.error('Add monitored channel modal error:', error);
+  }
+});
+
+// Manage Monitored Channels button
+app.action('manage_monitored_channels', async ({ ack, body, client, context }) => {
+  await ack();
+
+  try {
+    const teamId = context.teamId || body.team?.id;
+    const channels = await channelMonitoring.getMonitoredChannels(teamId);
+
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: channelMonitoring.manageMonitoredChannelsModal(channels)
+    });
+  } catch (error) {
+    console.error('Manage monitored channels modal error:', error);
+  }
+});
+
+// Monitored Channel overflow menu actions
+app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, context, action }) => {
+  await ack();
+
+  try {
+    const teamId = context.teamId || body.team?.id;
+    const userId = body.user?.id;
+
+    const selectedValue = action.selected_option?.value;
+    if (!selectedValue) return;
+
+    // Parse selected value: format is "actionType_channelId"
+    const firstUnderscore = selectedValue.indexOf('_');
+    const actionType = selectedValue.substring(0, firstUnderscore);
+    const targetId = selectedValue.substring(firstUnderscore + 1);
+
+    switch (actionType) {
+      case 'edit': {
+        const channels = await channelMonitoring.getMonitoredChannels(teamId);
+        const channelToEdit = channels.find(c => c.channelId === targetId);
+        if (channelToEdit) {
+          await client.views.open({
+            trigger_id: body.trigger_id,
+            view: channelMonitoring.editMonitoredChannelModal(channelToEdit)
+          });
+        }
+        break;
+      }
+
+      case 'toggle': {
+        const toggleChannels = await channelMonitoring.getMonitoredChannels(teamId);
+        const toggleChannel = toggleChannels.find(c => c.channelId === targetId);
+        if (toggleChannel) {
+          const result = await channelMonitoring.updateMonitoredChannel(teamId, targetId, {
+            enabled: !toggleChannel.enabled
+          });
+          if (result.success) {
+            const status = result.channel.enabled ? 'enabled' : 'disabled';
+            await client.chat.postEphemeral({
+              channel: userId,
+              user: userId,
+              text: `✅ Channel monitoring ${status} successfully!`
+            });
+
+            // Refresh the modal
+            const updatedChannels = await channelMonitoring.getMonitoredChannels(teamId);
+            await client.views.update({
+              view_id: body.view?.id,
+              view: channelMonitoring.manageMonitoredChannelsModal(updatedChannels)
+            });
+          }
+        }
+        break;
+      }
+
+      case 'remove': {
+        const deleteResult = await channelMonitoring.removeMonitoredChannel(teamId, targetId);
+        if (deleteResult.success) {
+          await client.chat.postEphemeral({
+            channel: userId,
+            user: userId,
+            text: '✅ Channel removed from monitoring successfully!'
+          });
+
+          // Refresh the modal
+          const updatedChannels = await channelMonitoring.getMonitoredChannels(teamId);
+          await client.views.update({
+            view_id: body.view?.id,
+            view: channelMonitoring.manageMonitoredChannelsModal(updatedChannels)
+          });
+        } else {
+          await client.chat.postEphemeral({
+            channel: userId,
+            user: userId,
+            text: `❌ Failed to remove channel: ${deleteResult.error}`
+          });
+        }
+        break;
+      }
+    }
+  } catch (error) {
+    console.error('Monitored channel action error:', error);
+  }
+});
+
+// Add Monitored Channel modal submission
+app.view('add_monitored_channel', async ({ ack, body, client, view, context }) => {
+  await ack();
+
+  try {
+    const teamId = context.teamId || body.team?.id;
+    const userId = body.user?.id;
+
+    const values = view.state.values;
+    const channelId = values.channel_select?.channel_input?.selected_channel;
+    const responseType = values.response_type?.response_type_input?.selected_option?.value;
+    const autoJiraTickets = values.auto_jira_tickets?.auto_jira_input?.selected_options?.some(option => option.value === 'enabled') || false;
+
+    if (!channelId || !responseType) {
+      await client.chat.postEphemeral({
+        channel: userId,
+        user: userId,
+        text: '❌ Please select both a channel and response type'
+      });
+      return;
+    }
+
+    // Get channel info to get the name
+    const channelInfo = await client.conversations.info({ channel: channelId });
+    const channelName = channelInfo.channel?.name || 'Unknown Channel';
+
+    const result = await channelMonitoring.addMonitoredChannel(teamId, {
+      channelId,
+      channelName,
+      responseType,
+      enabled: true,
+      autoCreateJiraTickets: autoJiraTickets,
+      addedBy: userId
+    });
+
+    if (result.success) {
+      await client.chat.postEphemeral({
+        channel: userId,
+        user: userId,
+        text: `✅ Channel #${channelName} added to monitoring successfully!\nResponse Type: ${responseType}`
+      });
+    } else {
+      await client.chat.postEphemeral({
+        channel: userId,
+        user: userId,
+        text: `❌ Failed to add channel: ${result.error}`
+      });
+    }
+  } catch (error) {
+    console.error('Monitored channel submission error:', error);
+  }
+});
+
+// Edit Monitored Channel modal submission
+app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) => {
+  await ack();
+
+  try {
+    const teamId = context.teamId || body.team?.id;
+    const userId = body.user?.id;
+
+    const metadata = JSON.parse(view.private_metadata);
+    const channelId = metadata.channelId;
+
+    const values = view.state.values;
+    const responseType = values.response_type?.response_type_input?.selected_option?.value;
+    const autoJiraTickets = values.auto_jira_tickets?.auto_jira_input?.selected_options?.some(option => option.value === 'enabled') || false;
+
+    if (!responseType) {
+      await client.chat.postEphemeral({
+        channel: userId,
+        user: userId,
+        text: '❌ Please select a response type'
+      });
+      return;
+    }
+
+    const result = await channelMonitoring.updateMonitoredChannel(teamId, channelId, {
+      responseType,
+      autoCreateJiraTickets: autoJiraTickets
+    });
+
+    if (result.success) {
+      await client.chat.postEphemeral({
+        channel: userId,
+        user: userId,
+        text: `✅ Channel settings updated successfully!\nResponse Type: ${responseType}\nAuto-Jira Tickets: ${autoJiraTickets ? 'Enabled' : 'Disabled'}`
+      });
+    } else {
+      await client.chat.postEphemeral({
+        channel: userId,
+        user: userId,
+        text: `❌ Failed to update channel: ${result.error}`
+      });
+    }
+  } catch (error) {
+    console.error('Edit monitored channel submission error:', error);
+  }
 });
 
 
