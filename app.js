@@ -1091,6 +1091,22 @@ app.event('app_home_opened', async ({ event, client, context }) => {
       eventTeam: event.team
     });
 
+    // Check Jira configuration status
+    let jiraStatus = '❌ Not Configured';
+    let jiraButtonText = '🔧 Setup Jira';
+    let jiraButtonStyle = 'primary';
+    
+    try {
+      const jiraCredentials = await redisService.getCredentials(teamId, 'jira');
+      if (jiraCredentials) {
+        jiraStatus = '✅ Configured';
+        jiraButtonText = '🔧 Manage Jira';
+        jiraButtonStyle = 'default';
+      }
+    } catch (error) {
+      console.log('Error checking Jira status:', error);
+    }
+
     const homeView = {
       type: 'home',
       blocks: [
@@ -1219,7 +1235,7 @@ app.event('app_home_opened', async ({ event, client, context }) => {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Integrations:*\nConfigure integrations to extend my capabilities:'
+              text: `*Integrations:*\nConfigure integrations to extend my capabilities:\n\n*Jira:* ${jiraStatus}`
             }
           },
           {
@@ -1229,10 +1245,10 @@ app.event('app_home_opened', async ({ event, client, context }) => {
                 type: 'button',
                 text: {
                   type: 'plain_text',
-                  text: '🔧 Setup Jira'
+                  text: jiraButtonText
                 },
                 action_id: 'setup_jira_button',
-                style: 'primary'
+                style: jiraButtonStyle
               },
               {
                 type: 'button',
