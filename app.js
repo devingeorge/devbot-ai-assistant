@@ -52,18 +52,25 @@ async function checkKeyPhraseResponse(message, teamId) {
 // Helper function to check for channel auto-response matches
 async function checkChannelAutoResponse(channelId, teamId) {
   try {
+    console.log('checkChannelAutoResponse called with:', { channelId, teamId });
     const responses = await redisService.getAllChannelAutoResponses(teamId);
+    console.log('All channel auto-responses for team:', responses);
+    
     const enabledResponses = responses.filter(r => r.enabled !== false);
+    console.log('Enabled channel auto-responses:', enabledResponses);
     
     for (const response of enabledResponses) {
+      console.log('Checking response:', response, 'against channel:', channelId);
       // Check if channel matches (supports both channel ID and channel name)
       if (response.channelId === channelId || 
           response.channelId === `#${channelId}` ||
           response.channelId.startsWith('C') && response.channelId === channelId) {
+        console.log('Channel match found!', response);
         return response;
       }
     }
     
+    console.log('No channel auto-response match found for channel:', channelId);
     return null;
   } catch (error) {
     console.error('Error checking channel auto-responses:', error);
@@ -845,11 +852,23 @@ app.event('message', async ({ event, say, client, context }) => {
   else if (event.channel_type !== 'im') {
     try {
       console.log('Processing channel message:', event);
+      console.log('Channel message details:', {
+        channel: event.channel,
+        channel_type: event.channel_type,
+        team: event.team,
+        user: event.user,
+        text: event.text
+      });
       
       // Check for channel auto-response matches
       const teamId = context.teamId;
+      console.log('Team ID for channel message:', teamId);
+      
       if (teamId) {
+        console.log('Checking for channel auto-response in channel:', event.channel, 'for team:', teamId);
         const channelAutoResponse = await checkChannelAutoResponse(event.channel, teamId);
+        console.log('Channel auto-response result:', channelAutoResponse);
+        
         if (channelAutoResponse) {
           console.log('Channel auto-response matched:', channelAutoResponse.channelId);
           
@@ -943,6 +962,13 @@ app.event('message', async ({ event, say, client, context }) => {
 // Home tab handler
 app.event('app_home_opened', async ({ event, client }) => {
   try {
+    // Check if we have valid tokens before trying to publish
+    const teamId = event.team;
+    if (!teamId) {
+      console.log('No team ID found in app_home_opened event, skipping home view publish');
+      return;
+    }
+
     await client.views.publish({
       user_id: event.user,
       view: {
