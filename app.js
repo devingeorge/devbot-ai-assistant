@@ -1092,11 +1092,9 @@ app.event('app_home_opened', async ({ event, client, context }) => {
       eventTeam: event.team
     });
 
-    await client.views.publish({
-      user_id: event.user,
-      view: {
-        type: 'home',
-        blocks: [
+    const homeView = {
+      type: 'home',
+      blocks: [
           {
             type: 'section',
             text: {
@@ -1289,8 +1287,21 @@ app.event('app_home_opened', async ({ event, client, context }) => {
             ]
           }
         ]
-      }
+      };
+
+    console.log('Publishing App Home with', homeView.blocks.length, 'blocks');
+    console.log('Channel monitoring module loaded:', typeof channelMonitoring);
+    console.log('Available functions:', Object.keys(channelMonitoring));
+    
+    const result = await client.views.publish({
+      user_id: event.user,
+      view: homeView
     });
+    
+    console.log('App Home published successfully:', result.ok);
+    if (!result.ok) {
+      console.error('App Home publish failed:', result.error);
+    }
   } catch (error) {
     console.error('Error publishing home view:', error);
   }
