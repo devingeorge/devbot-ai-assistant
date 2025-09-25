@@ -1463,25 +1463,42 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
       const enterprisePrompts = await redisService.getAllSuggestedPrompts(context.enterpriseId);
       console.log('Enterprise-wide prompts:', enterprisePrompts.length);
       
-      // Get prompts from individual team storage
-      const teamPrompts = await redisService.getAllSuggestedPrompts(context.teamId || body.team?.id || 'unknown');
-      console.log('Team-specific prompts:', teamPrompts.length);
+      // Get all Redis keys to find all team IDs that have suggested prompts
+      const redis = require('redis');
+      const client = redis.createClient({ url: process.env.REDIS_URL });
+      await client.connect();
       
-      // Get prompts from body team ID (for different devices)
-      let bodyTeamPrompts = [];
-      if (body.team?.id && body.team.id !== (context.teamId || 'unknown')) {
-        bodyTeamPrompts = await redisService.getAllSuggestedPrompts(body.team.id);
-        console.log('Body team prompts:', bodyTeamPrompts.length);
+      try {
+        // Get all keys that match the pattern for suggested prompts
+        const promptKeys = await client.keys('suggested_prompts:T*');
+        console.log('Found prompt keys:', promptKeys);
+        
+        // Extract unique team IDs from the keys
+        const teamIds = [...new Set(promptKeys.map(key => {
+          const match = key.match(/suggested_prompts:(T[^:]+):/);
+          return match ? match[1] : null;
+        }).filter(Boolean))];
+        console.log('Found team IDs with prompts:', teamIds);
+        
+        // Get prompts from all team IDs
+        const allTeamPrompts = [];
+        for (const teamId of teamIds) {
+          const teamPrompts = await redisService.getAllSuggestedPrompts(teamId);
+          console.log(`Prompts from team ${teamId}:`, teamPrompts.length);
+          allTeamPrompts.push(...teamPrompts);
+        }
+        
+        // Combine all prompts and remove duplicates by ID
+        const allPromptsMap = new Map();
+        [...enterprisePrompts, ...allTeamPrompts].forEach(prompt => {
+          allPromptsMap.set(prompt.id, prompt);
+        });
+        allPrompts = Array.from(allPromptsMap.values());
+        
+        console.log('Total aggregated prompts from all teams:', allPrompts.length);
+      } finally {
+        await client.quit();
       }
-      
-      // Combine all prompts and remove duplicates by ID
-      const allPromptsMap = new Map();
-      [...enterprisePrompts, ...teamPrompts, ...bodyTeamPrompts].forEach(prompt => {
-        allPromptsMap.set(prompt.id, prompt);
-      });
-      allPrompts = Array.from(allPromptsMap.values());
-      
-      console.log('Total aggregated prompts:', allPrompts.length);
     } else {
       // Non-enterprise: use team-specific data
       allPrompts = await redisService.getAllSuggestedPrompts(teamId);
@@ -2287,25 +2304,42 @@ async function getViewKeyPhraseResponsesBlocks(teamId, context = null, body = nu
     const enterpriseResponses = await redisService.getAllKeyPhraseResponses(context.enterpriseId);
     console.log('Enterprise-wide key-phrase responses:', enterpriseResponses.length);
     
-    // Get responses from individual team storage
-    const teamResponses = await redisService.getAllKeyPhraseResponses(context.teamId || body?.team?.id || 'unknown');
-    console.log('Team-specific key-phrase responses:', teamResponses.length);
+    // Get all Redis keys to find all team IDs that have key-phrase responses
+    const redis = require('redis');
+    const client = redis.createClient({ url: process.env.REDIS_URL });
+    await client.connect();
     
-    // Get responses from body team ID (for different devices)
-    let bodyTeamResponses = [];
-    if (body?.team?.id && body.team.id !== (context.teamId || 'unknown')) {
-      bodyTeamResponses = await redisService.getAllKeyPhraseResponses(body.team.id);
-      console.log('Body team key-phrase responses:', bodyTeamResponses.length);
+    try {
+      // Get all keys that match the pattern for key-phrase responses
+      const responseKeys = await client.keys('key_phrase_responses:T*');
+      console.log('Found key-phrase response keys:', responseKeys);
+      
+      // Extract unique team IDs from the keys
+      const teamIds = [...new Set(responseKeys.map(key => {
+        const match = key.match(/key_phrase_responses:(T[^:]+):/);
+        return match ? match[1] : null;
+      }).filter(Boolean))];
+      console.log('Found team IDs with key-phrase responses:', teamIds);
+      
+      // Get responses from all team IDs
+      const allTeamResponses = [];
+      for (const teamId of teamIds) {
+        const teamResponses = await redisService.getAllKeyPhraseResponses(teamId);
+        console.log(`Key-phrase responses from team ${teamId}:`, teamResponses.length);
+        allTeamResponses.push(...teamResponses);
+      }
+      
+      // Combine all responses and remove duplicates by ID
+      const allResponsesMap = new Map();
+      [...enterpriseResponses, ...allTeamResponses].forEach(response => {
+        allResponsesMap.set(response.id, response);
+      });
+      allResponses = Array.from(allResponsesMap.values());
+      
+      console.log('Total aggregated key-phrase responses from all teams:', allResponses.length);
+    } finally {
+      await client.quit();
     }
-    
-    // Combine all responses and remove duplicates by ID
-    const allResponsesMap = new Map();
-    [...enterpriseResponses, ...teamResponses, ...bodyTeamResponses].forEach(response => {
-      allResponsesMap.set(response.id, response);
-    });
-    allResponses = Array.from(allResponsesMap.values());
-    
-    console.log('Total aggregated key-phrase responses:', allResponses.length);
   } else {
     // Non-enterprise: use team-specific data
     allResponses = await redisService.getAllKeyPhraseResponses(teamId);
@@ -2392,7 +2426,7 @@ async function getViewKeyPhraseResponsesBlocks(teamId, context = null, body = nu
 }
 
 // Helper function to update the view key-phrase responses modal
-async function updateViewKeyPhraseResponsesModal(client, body, teamId) {
+async function updateViewKeyPhraseResponsesModal(client, body, teamId, context) {
   try {
     const blocks = await getViewKeyPhraseResponsesBlocks(teamId, context, body);
     
@@ -2652,7 +2686,7 @@ app.action(/^toggle_response_(.+)$/, async ({ ack, body, client, action }) => {
     
     if (success) {
       // Update the modal to reflect the change
-      await updateViewKeyPhraseResponsesModal(client, body, teamId);
+      await updateViewKeyPhraseResponsesModal(client, body, teamId, context);
       
       await client.chat.postMessage({
         channel: body.user.id,
@@ -2685,7 +2719,7 @@ app.action(/^delete_response_(.+)$/, async ({ ack, body, client, action }) => {
     
     if (success) {
       // Update the modal to reflect the change
-      await updateViewKeyPhraseResponsesModal(client, body, teamId);
+      await updateViewKeyPhraseResponsesModal(client, body, teamId, context);
       
       await client.chat.postMessage({
         channel: body.user.id,
