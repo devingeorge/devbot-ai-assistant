@@ -1444,12 +1444,10 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
     // Multi-tenant team ID resolution for enterprise installs
     let teamId = context.teamId || body.team?.id || 'unknown';
     
-    // For enterprise installs, ensure consistent team ID across devices
-    // If context.teamId is the enterprise ID, we need to find the actual team ID
-    if (context.isEnterpriseInstall && context.teamId === context.enterpriseId) {
-      // In enterprise installs, use the team ID from the body or context
-      teamId = body.team?.id || context.teamId;
-      console.log('Enterprise install detected - using team ID from body:', teamId);
+    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
     }
     
     console.log('View prompts - teamId:', teamId);
@@ -1726,7 +1724,13 @@ app.view('add_suggested_prompt', async ({ ack, body, view, client, context }) =>
   await ack();
   
   try {
-    const teamId = context.teamId || body.team?.id || 'unknown';
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    
+    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
+    }
     const values = view.state.values;
     
     const buttonText = values.prompt_button_text.button_text.value;
@@ -1971,7 +1975,13 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client, context }) =
   await ack();
   
   try {
-    const teamId = context.teamId || body.team?.id || 'unknown';
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    
+    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
+    }
     const promptId = view.private_metadata;
     const values = view.state.values;
     
@@ -2189,7 +2199,13 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
   await ack();
   
   try {
-    const teamId = context.teamId || body.team?.id || 'unknown';
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    
+    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
+    }
     const values = view.state.values;
     
     const triggerPhrase = values.trigger_phrase.trigger_text.value;
@@ -2349,10 +2365,10 @@ app.action('view_key_phrase_responses_button', async ({ ack, body, client, conte
     // Multi-tenant team ID resolution for enterprise installs
     let teamId = context.teamId || body.team?.id || 'unknown';
     
-    // For enterprise installs, ensure consistent team ID across devices
-    if (context.isEnterpriseInstall && context.teamId === context.enterpriseId) {
-      teamId = body.team?.id || context.teamId;
-      console.log('Enterprise install detected - using team ID from body:', teamId);
+    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
     }
     
     console.log('View key-phrase responses - teamId:', teamId);
@@ -2482,7 +2498,13 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
   await ack();
   
   try {
-    const teamId = context.teamId || body.team?.id || 'unknown';
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    
+    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
+    }
     const responseId = view.private_metadata;
     const values = view.state.values;
     
@@ -3361,8 +3383,13 @@ app.action('manage_monitored_channels', async ({ ack, body, client, context }) =
   await ack();
 
   try {
-    // Use the team ID from context consistently (check logs to see what we actually get)
-    const teamId = context.teamId;
+    // Use enterprise ID for data storage in enterprise installs to ensure consistency across devices
+    let teamId = context.teamId;
+    
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
+    }
     console.log('Manage channels - teamId used for lookup:', teamId);
     console.log('Body team vs context teamId:', { bodyTeam: body.team?.id, contextTeamId: context.teamId });
     const channels = await channelMonitoring.getMonitoredChannels(teamId);
@@ -3483,10 +3510,10 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
     
     let teamId = context.teamId;
     
-    // For enterprise installs, ensure consistent team ID across devices
-    if (context.isEnterpriseInstall && context.teamId === context.enterpriseId) {
-      teamId = body.team?.id || context.teamId;
-      console.log('Enterprise install detected - using team ID from body:', {
+    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for data storage:', {
         originalTeamId: context.teamId,
         enterpriseId: context.enterpriseId,
         correctedTeamId: teamId
