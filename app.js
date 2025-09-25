@@ -3357,9 +3357,42 @@ app.action('connect_salesforce_button', async ({ ack, body, client }) => {
     const existingTokens = await redisService.getSalesforceTokens(teamId, userId);
     
     if (existingTokens) {
+      // Show options to reconfigure or disconnect
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `✅ You already have Salesforce connected!\n\n**Org:** ${existingTokens.instance_url}\n**Connected:** ${new Date(existingTokens.createdAt).toLocaleDateString()}\n\nTo disconnect, use the command: \`/disconnect-salesforce\``
+        text: `✅ You already have Salesforce connected!\n\n**Org:** ${existingTokens.instance_url}\n**Connected:** ${new Date(existingTokens.createdAt).toLocaleDateString()}`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `✅ *Salesforce Connected*\n\n**Org:** ${existingTokens.instance_url}\n**Connected:** ${new Date(existingTokens.createdAt).toLocaleDateString()}`
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🔄 Reconfigure'
+                },
+                action_id: 'reconfigure_salesforce_button',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '❌ Disconnect'
+                },
+                action_id: 'disconnect_salesforce_button',
+                style: 'danger'
+              }
+            ]
+          }
+        ]
       });
       return;
     }
@@ -3515,6 +3548,146 @@ app.view('salesforce_setup', async ({ ack, body, view, client }) => {
     await client.chat.postMessage({
       channel: body.user.id,
       text: 'Sorry, there was an error setting up Salesforce integration. Please try again.'
+    });
+  }
+});
+
+// Reconfigure Salesforce button handler
+app.action('reconfigure_salesforce_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const userId = body.user.id;
+    
+    // Get existing tokens to pre-fill the modal
+    const existingTokens = await redisService.getSalesforceTokens(teamId, userId);
+    
+    // Open Salesforce setup modal with pre-filled values
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'salesforce_setup',
+        title: {
+          type: 'plain_text',
+          text: 'Reconfigure Salesforce'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Update'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Update your Salesforce integration settings:'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'instance_url',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'instance_url_input',
+              placeholder: {
+                type: 'plain_text',
+                text: 'https://yourcompany.my.salesforce.com'
+              },
+              initial_value: existingTokens?.instance_url || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Instance URL'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'access_token',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'access_token_input',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Your Salesforce access token'
+              },
+              initial_value: existingTokens?.access_token || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Access Token'
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'refresh_token',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'refresh_token_input',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Your Salesforce refresh token (optional)'
+              },
+              initial_value: existingTokens?.refresh_token || ''
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Refresh Token (Optional)'
+            },
+            optional: true
+          },
+          {
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: '💡 *Tip:* You can get these tokens from your Salesforce org by going to Setup → My Personal Information → My Session ID, or by using Salesforce CLI.'
+              }
+            ]
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error handling Salesforce reconfiguration:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error opening the Salesforce reconfiguration modal. Please try again.'
+    });
+  }
+});
+
+// Disconnect Salesforce button handler
+app.action('disconnect_salesforce_button', async ({ ack, body, client }) => {
+  await ack();
+  
+  try {
+    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const userId = body.user.id;
+    
+    const success = await redisService.deleteSalesforceTokens(teamId, userId);
+    
+    if (success) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '✅ Salesforce connection has been disconnected successfully. You can reconnect anytime using the "🔗 Connect" button.'
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ No Salesforce connection found to disconnect.'
+      });
+    }
+  } catch (error) {
+    console.error('Error disconnecting Salesforce:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: 'Sorry, there was an error disconnecting Salesforce. Please try again.'
     });
   }
 });
