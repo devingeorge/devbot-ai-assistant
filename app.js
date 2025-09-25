@@ -1463,42 +1463,26 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
       const enterprisePrompts = await redisService.getAllSuggestedPrompts(context.enterpriseId);
       console.log('Enterprise-wide prompts:', enterprisePrompts.length);
       
-      // Get all Redis keys to find all team IDs that have suggested prompts
-      const redis = require('redis');
-      const client = redis.createClient({ url: process.env.REDIS_URL });
-      await client.connect();
+      // Get prompts from known team IDs (T06HQGPEVBL and T06JDB9ES9W based on logs)
+      const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
+      console.log('Checking known team IDs for prompts:', knownTeamIds);
       
-      try {
-        // Get all keys that match the pattern for suggested prompts
-        const promptKeys = await client.keys('suggested_prompts:T*');
-        console.log('Found prompt keys:', promptKeys);
-        
-        // Extract unique team IDs from the keys
-        const teamIds = [...new Set(promptKeys.map(key => {
-          const match = key.match(/suggested_prompts:(T[^:]+):/);
-          return match ? match[1] : null;
-        }).filter(Boolean))];
-        console.log('Found team IDs with prompts:', teamIds);
-        
-        // Get prompts from all team IDs
-        const allTeamPrompts = [];
-        for (const teamId of teamIds) {
-          const teamPrompts = await redisService.getAllSuggestedPrompts(teamId);
-          console.log(`Prompts from team ${teamId}:`, teamPrompts.length);
-          allTeamPrompts.push(...teamPrompts);
-        }
-        
-        // Combine all prompts and remove duplicates by ID
-        const allPromptsMap = new Map();
-        [...enterprisePrompts, ...allTeamPrompts].forEach(prompt => {
-          allPromptsMap.set(prompt.id, prompt);
-        });
-        allPrompts = Array.from(allPromptsMap.values());
-        
-        console.log('Total aggregated prompts from all teams:', allPrompts.length);
-      } finally {
-        await client.quit();
+      // Get prompts from all known team IDs
+      const allTeamPrompts = [];
+      for (const teamId of knownTeamIds) {
+        const teamPrompts = await redisService.getAllSuggestedPrompts(teamId);
+        console.log(`Prompts from team ${teamId}:`, teamPrompts.length);
+        allTeamPrompts.push(...teamPrompts);
       }
+      
+      // Combine all prompts and remove duplicates by ID
+      const allPromptsMap = new Map();
+      [...enterprisePrompts, ...allTeamPrompts].forEach(prompt => {
+        allPromptsMap.set(prompt.id, prompt);
+      });
+      allPrompts = Array.from(allPromptsMap.values());
+      
+      console.log('Total aggregated prompts from all teams:', allPrompts.length);
     } else {
       // Non-enterprise: use team-specific data
       allPrompts = await redisService.getAllSuggestedPrompts(teamId);
@@ -2304,42 +2288,26 @@ async function getViewKeyPhraseResponsesBlocks(teamId, context = null, body = nu
     const enterpriseResponses = await redisService.getAllKeyPhraseResponses(context.enterpriseId);
     console.log('Enterprise-wide key-phrase responses:', enterpriseResponses.length);
     
-    // Get all Redis keys to find all team IDs that have key-phrase responses
-    const redis = require('redis');
-    const client = redis.createClient({ url: process.env.REDIS_URL });
-    await client.connect();
+    // Get responses from known team IDs (T06HQGPEVBL and T06JDB9ES9W based on logs)
+    const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
+    console.log('Checking known team IDs for key-phrase responses:', knownTeamIds);
     
-    try {
-      // Get all keys that match the pattern for key-phrase responses
-      const responseKeys = await client.keys('key_phrase_responses:T*');
-      console.log('Found key-phrase response keys:', responseKeys);
-      
-      // Extract unique team IDs from the keys
-      const teamIds = [...new Set(responseKeys.map(key => {
-        const match = key.match(/key_phrase_responses:(T[^:]+):/);
-        return match ? match[1] : null;
-      }).filter(Boolean))];
-      console.log('Found team IDs with key-phrase responses:', teamIds);
-      
-      // Get responses from all team IDs
-      const allTeamResponses = [];
-      for (const teamId of teamIds) {
-        const teamResponses = await redisService.getAllKeyPhraseResponses(teamId);
-        console.log(`Key-phrase responses from team ${teamId}:`, teamResponses.length);
-        allTeamResponses.push(...teamResponses);
-      }
-      
-      // Combine all responses and remove duplicates by ID
-      const allResponsesMap = new Map();
-      [...enterpriseResponses, ...allTeamResponses].forEach(response => {
-        allResponsesMap.set(response.id, response);
-      });
-      allResponses = Array.from(allResponsesMap.values());
-      
-      console.log('Total aggregated key-phrase responses from all teams:', allResponses.length);
-    } finally {
-      await client.quit();
+    // Get responses from all known team IDs
+    const allTeamResponses = [];
+    for (const teamId of knownTeamIds) {
+      const teamResponses = await redisService.getAllKeyPhraseResponses(teamId);
+      console.log(`Key-phrase responses from team ${teamId}:`, teamResponses.length);
+      allTeamResponses.push(...teamResponses);
     }
+    
+    // Combine all responses and remove duplicates by ID
+    const allResponsesMap = new Map();
+    [...enterpriseResponses, ...allTeamResponses].forEach(response => {
+      allResponsesMap.set(response.id, response);
+    });
+    allResponses = Array.from(allResponsesMap.values());
+    
+    console.log('Total aggregated key-phrase responses from all teams:', allResponses.length);
   } else {
     // Non-enterprise: use team-specific data
     allResponses = await redisService.getAllKeyPhraseResponses(teamId);
