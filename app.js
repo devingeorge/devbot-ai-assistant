@@ -1558,7 +1558,7 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
           ]
         });
         
-        if (index < prompts.length - 1) {
+        if (index < allPrompts.length - 1) {
           blocks.push({
             type: 'divider'
           });
@@ -2380,7 +2380,7 @@ async function getViewKeyPhraseResponsesBlocks(teamId, context = null, body = nu
         ]
       });
       
-      if (index < responses.length - 1) {
+      if (index < allResponses.length - 1) {
         blocks.push({
           type: 'divider'
         });
