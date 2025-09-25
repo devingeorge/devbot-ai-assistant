@@ -3776,6 +3776,19 @@ app.command('/disconnect-salesforce', async ({ command, ack, respond }) => {
   }
 });
 
+// Clear Redis command (temporary - remove after use)
+app.command('/clear-redis', async ({ command, ack, respond }) => {
+  await ack();
+  
+  try {
+    await redisService.client.flushall();
+    await respond('✅ Redis data cleared successfully! You can now reinstall your Slack app.');
+  } catch (error) {
+    console.error('Error clearing Redis:', error);
+    await respond(`❌ Error clearing Redis: ${error.message}`);
+  }
+});
+
 // List integrations command
 app.command('/integrations', async ({ command, ack, respond }) => {
   await ack();
