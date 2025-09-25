@@ -1116,199 +1116,181 @@ app.event('app_home_opened', async ({ event, client, context }) => {
     const homeView = {
       type: 'home',
       blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Welcome to AI Assistant!* 🤖\n\nI\'m your intelligent AI assistant powered by GROK. I can help you with questions, provide information, and assist with various tasks.'
-            }
-          },
-          {
-            type: 'divider'
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Salesforce Integration:*\nConnect your Salesforce org'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '🔗 Connect'
-              },
-              action_id: 'connect_salesforce_button',
-              value: 'connect_salesforce'
-            }
-          },
-          {
-            type: 'divider'
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*AI Behavior Settings:*\nCustomize how I respond to you'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '⚙️ Configure'
-              },
-              action_id: 'configure_system_prompt_button',
-              value: 'configure_prompt'
-            }
-          },
-          {
-            type: 'divider'
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Available Commands:*\n• `/ai <question>` - Ask me anything\n• `/integrations` - List configured integrations\n• Mention me in channels: `@AI Assistant help`'
-            }
-          },
-          {
-            type: 'divider'
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Suggested Prompts:*\nCreate quick-start prompts that appear as buttons in the AI Assistant pane:'
-            }
-          },
-          {
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '➕ Add Prompt'
-                },
-                action_id: 'add_suggested_prompt_button',
-                style: 'primary'
-              },
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '📋 View Prompts'
-                },
-                action_id: 'view_suggested_prompts_button'
-              }
-            ]
-          },
-          {
-            type: 'divider'
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Key-Phrase Responses:*\nSet up automatic responses that bypass the AI for specific phrases:'
-            }
-          },
-          {
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '➕ Add Response'
-                },
-                action_id: 'add_key_phrase_response_button',
-                style: 'primary'
-              },
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '📋 View Responses'
-                },
-                action_id: 'view_key_phrase_responses_button'
-              }
-            ]
-          },
-          {            type: 'divider'
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `*Integrations:*\nConfigure integrations to extend my capabilities:\n\n*Jira:* ${jiraStatus}`
-            }
-          },
-          {
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: jiraButtonText
-                },
-                action_id: 'setup_jira_button',
-                ...(jiraButtonStyle && { style: jiraButtonStyle })
-              },
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '🧹 Clean Chat History'
-                },
-                action_id: 'clean_chat_history_button',
-                style: 'danger'
-              },
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '❓ Help'
-                },
-                action_id: 'help_button'
-              }
-            ]
-          },
-          {
-            type: 'divider'
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Channel Monitoring:*\nMonitor channels and get AI responses based on message content'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '➕ Add Channel Monitor'
-              },
-              action_id: 'add_monitored_channel',
-              style: 'primary'
-            }
-          },
-          {
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '⚙️ Manage Monitored Channels'
-                },
-                action_id: 'manage_monitored_channels'
-              }
-            ]
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Welcome to AI Assistant!* 🤖\n\nI\'m your intelligent AI assistant powered by GROK. I can help you with questions, provide information, and assist with various tasks.'
           }
-        ]
-      };
+        },
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*AI Behavior Settings:*\nCustomize how I respond to you'
+          },
+          accessory: {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '⚙️ Configure'
+            },
+            action_id: 'configure_system_prompt_button',
+            value: 'configure_prompt'
+          }
+        },
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Suggested Prompts:*\nCreate quick-start prompts that appear as buttons in the AI Assistant pane:'
+          }
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '➕ Add Prompt'
+              },
+              action_id: 'add_suggested_prompt_button',
+              style: 'primary'
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '📋 View Prompts'
+              },
+              action_id: 'view_suggested_prompts_button'
+            }
+          ]
+        },
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Key-Phrase Responses:*\nSet up automatic responses that bypass the AI for specific phrases:'
+          }
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '➕ Add Response'
+              },
+              action_id: 'add_key_phrase_response_button',
+              style: 'primary'
+            },
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '📋 View Responses'
+              },
+              action_id: 'view_key_phrase_responses_button'
+            }
+          ]
+        },
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Channel Monitoring:*\nMonitor channels and get AI responses based on message content'
+          },
+          accessory: {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '➕ Add Channel Monitor'
+            },
+            action_id: 'add_monitored_channel',
+            style: 'primary'
+          }
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '⚙️ Manage Monitored Channels'
+              },
+              action_id: 'manage_monitored_channels'
+            }
+          ]
+        },
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Integrations:*\nConfigure integrations to extend my capabilities:'
+          }
+        },
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*Jira Integration: ${jiraStatus}*\nConnect your Jira org`
+          },
+          accessory: {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: jiraButtonText
+            },
+            action_id: 'setup_jira_button',
+            ...(jiraButtonStyle && { style: jiraButtonStyle })
+          }
+        },
+        {
+          type: 'divider'
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Salesforce Integration:*\nConnect your Salesforce org'
+          },
+          accessory: {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🔗 Connect'
+            },
+            action_id: 'connect_salesforce_button',
+            value: 'connect_salesforce'
+          }
+        },
+        {
+          type: 'divider'
+        }
+      ]
+    };
 
     console.log('Publishing App Home with', homeView.blocks.length, 'blocks');
     console.log('Channel monitoring module loaded:', typeof channelMonitoring);
