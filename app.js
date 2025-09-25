@@ -1455,15 +1455,46 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
     console.log('View prompts - body.team?.id:', body.team?.id);
     console.log('View prompts - body.user?.team_id:', body.user?.team_id);
     console.log('View prompts - context.enterpriseId:', context.enterpriseId);
-    const prompts = await redisService.getAllSuggestedPrompts(teamId);
-    console.log('View prompts - retrieved prompts:', prompts);
+    
+    // For enterprise installs, aggregate prompts from all team IDs plus enterprise-wide data
+    let allPrompts = [];
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      // Get prompts from enterprise-wide storage
+      const enterprisePrompts = await redisService.getAllSuggestedPrompts(context.enterpriseId);
+      console.log('Enterprise-wide prompts:', enterprisePrompts.length);
+      
+      // Get prompts from individual team storage
+      const teamPrompts = await redisService.getAllSuggestedPrompts(context.teamId || body.team?.id || 'unknown');
+      console.log('Team-specific prompts:', teamPrompts.length);
+      
+      // Get prompts from body team ID (for different devices)
+      let bodyTeamPrompts = [];
+      if (body.team?.id && body.team.id !== (context.teamId || 'unknown')) {
+        bodyTeamPrompts = await redisService.getAllSuggestedPrompts(body.team.id);
+        console.log('Body team prompts:', bodyTeamPrompts.length);
+      }
+      
+      // Combine all prompts and remove duplicates by ID
+      const allPromptsMap = new Map();
+      [...enterprisePrompts, ...teamPrompts, ...bodyTeamPrompts].forEach(prompt => {
+        allPromptsMap.set(prompt.id, prompt);
+      });
+      allPrompts = Array.from(allPromptsMap.values());
+      
+      console.log('Total aggregated prompts:', allPrompts.length);
+    } else {
+      // Non-enterprise: use team-specific data
+      allPrompts = await redisService.getAllSuggestedPrompts(teamId);
+    }
+    
+    console.log('View prompts - retrieved prompts:', allPrompts);
     
     const blocks = [
       {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `*Suggested Prompts* (${prompts.length} total)`
+          text: `*Suggested Prompts* (${allPrompts.length} total)`
         }
       },
       {
@@ -1471,7 +1502,7 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
       }
     ];
     
-    if (prompts.length === 0) {
+    if (allPrompts.length === 0) {
       blocks.push({
         type: 'section',
         text: {
@@ -1480,7 +1511,7 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
         }
       });
     } else {
-      prompts.forEach((prompt, index) => {
+      allPrompts.forEach((prompt, index) => {
         const statusIcon = prompt.enabled === false ? '🔴' : '🟢';
         const statusText = prompt.enabled === false ? 'Disabled' : 'Enabled';
         
@@ -2248,15 +2279,44 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
 });
 
 // Helper function to get view key-phrase responses blocks
-async function getViewKeyPhraseResponsesBlocks(teamId) {
-  const responses = await redisService.getAllKeyPhraseResponses(teamId);
+async function getViewKeyPhraseResponsesBlocks(teamId, context = null, body = null) {
+  // For enterprise installs, aggregate responses from all team IDs plus enterprise-wide data
+  let allResponses = [];
+  if (context && context.isEnterpriseInstall && context.enterpriseId) {
+    // Get responses from enterprise-wide storage
+    const enterpriseResponses = await redisService.getAllKeyPhraseResponses(context.enterpriseId);
+    console.log('Enterprise-wide key-phrase responses:', enterpriseResponses.length);
+    
+    // Get responses from individual team storage
+    const teamResponses = await redisService.getAllKeyPhraseResponses(context.teamId || body?.team?.id || 'unknown');
+    console.log('Team-specific key-phrase responses:', teamResponses.length);
+    
+    // Get responses from body team ID (for different devices)
+    let bodyTeamResponses = [];
+    if (body?.team?.id && body.team.id !== (context.teamId || 'unknown')) {
+      bodyTeamResponses = await redisService.getAllKeyPhraseResponses(body.team.id);
+      console.log('Body team key-phrase responses:', bodyTeamResponses.length);
+    }
+    
+    // Combine all responses and remove duplicates by ID
+    const allResponsesMap = new Map();
+    [...enterpriseResponses, ...teamResponses, ...bodyTeamResponses].forEach(response => {
+      allResponsesMap.set(response.id, response);
+    });
+    allResponses = Array.from(allResponsesMap.values());
+    
+    console.log('Total aggregated key-phrase responses:', allResponses.length);
+  } else {
+    // Non-enterprise: use team-specific data
+    allResponses = await redisService.getAllKeyPhraseResponses(teamId);
+  }
   
   const blocks = [
     {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Key-Phrase Responses* (${responses.length} total)`
+        text: `*Key-Phrase Responses* (${allResponses.length} total)`
       }
     },
     {
@@ -2264,7 +2324,7 @@ async function getViewKeyPhraseResponsesBlocks(teamId) {
     }
   ];
   
-  if (responses.length === 0) {
+  if (allResponses.length === 0) {
     blocks.push({
       type: 'section',
       text: {
@@ -2273,7 +2333,7 @@ async function getViewKeyPhraseResponsesBlocks(teamId) {
       }
     });
   } else {
-    responses.forEach((response, index) => {
+    allResponses.forEach((response, index) => {
       const statusIcon = response.enabled === false ? '🔴' : '🟢';
       const statusText = response.enabled === false ? 'Disabled' : 'Enabled';
       
@@ -2334,7 +2394,7 @@ async function getViewKeyPhraseResponsesBlocks(teamId) {
 // Helper function to update the view key-phrase responses modal
 async function updateViewKeyPhraseResponsesModal(client, body, teamId) {
   try {
-    const blocks = await getViewKeyPhraseResponsesBlocks(teamId);
+    const blocks = await getViewKeyPhraseResponsesBlocks(teamId, context, body);
     
     await client.views.update({
       view_id: body.view.id,
@@ -2375,7 +2435,7 @@ app.action('view_key_phrase_responses_button', async ({ ack, body, client, conte
     console.log('View key-phrase responses - context.teamId:', context.teamId);
     console.log('View key-phrase responses - body.team?.id:', body.team?.id);
     console.log('View key-phrase responses - context.enterpriseId:', context.enterpriseId);
-    const blocks = await getViewKeyPhraseResponsesBlocks(teamId);
+    const blocks = await getViewKeyPhraseResponsesBlocks(teamId, context, body);
     
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -2543,7 +2603,7 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
                 type: 'plain_text',
                 text: 'Close'
               },
-              blocks: await getViewKeyPhraseResponsesBlocks(teamId)
+              blocks: await getViewKeyPhraseResponsesBlocks(teamId, context, body)
             }
           });
         } catch (updateError) {
