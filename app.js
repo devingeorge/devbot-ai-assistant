@@ -3924,27 +3924,65 @@ app.error((error) => {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Welcome to your AI Assistant! 🤖*\n\nI can help you with various tasks. Here are some ways to interact with me:\n\n• *Mention me* in any channel: `@AI Assistant <your question>`\n• *Use the slash command*: `/ai <your question>`\n• *Send me a direct message* with your questions\n\nWhat would you like to know?'
+              text: '*Welcome to AI Assistant!* 🤖\n\nI\'m your intelligent AI assistant powered by GROK. I can help you with questions, provide information, and assist with various tasks.'
             }
           },
           {
             type: 'divider'
           },
-          // Suggested Prompts Section
           {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Suggested Prompts*\n\nCreate custom prompt buttons for quick AI interactions.'
+              text: '*Salesforce Integration:*\nConnect your Salesforce org'
             },
             accessory: {
               type: 'button',
               text: {
                 type: 'plain_text',
-                text: 'Add Prompt'
+                text: '🔗 Connect'
               },
-              action_id: 'add_suggested_prompt_button',
-              style: 'primary'
+              action_id: 'connect_salesforce_button',
+              value: 'connect_salesforce'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*AI Behavior Settings:*\nCustomize how I respond to you'
+            },
+            accessory: {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '⚙️ Configure'
+              },
+              action_id: 'configure_system_prompt_button',
+              value: 'configure_prompt'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Available Commands:*\n• `/ai <question>` - Ask me anything\n• `/integrations` - List configured integrations\n• Mention me in channels: `@AI Assistant help`'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Suggested Prompts:*\nCreate quick-start prompts that appear as buttons in the AI Assistant pane:'
             }
           },
           {
@@ -3954,7 +3992,16 @@ app.error((error) => {
                 type: 'button',
                 text: {
                   type: 'plain_text',
-                  text: 'View Prompts'
+                  text: '➕ Add Prompt'
+                },
+                action_id: 'add_suggested_prompt_button',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '📋 View Prompts'
                 },
                 action_id: 'view_suggested_prompts_button'
               }
@@ -3963,21 +4010,11 @@ app.error((error) => {
           {
             type: 'divider'
           },
-          // Key-Phrase Responses Section
           {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Key-Phrase Responses*\n\nSet up automatic responses for specific keywords or phrases.'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: 'Add Response'
-              },
-              action_id: 'add_key_phrase_response_button',
-              style: 'primary'
+              text: '*Key-Phrase Responses:*\nSet up automatic responses that bypass the AI for specific phrases:'
             }
           },
           {
@@ -3987,7 +4024,16 @@ app.error((error) => {
                 type: 'button',
                 text: {
                   type: 'plain_text',
-                  text: 'View Responses'
+                  text: '➕ Add Response'
+                },
+                action_id: 'add_key_phrase_response_button',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '📋 View Responses'
                 },
                 action_id: 'view_key_phrase_responses_button'
               }
@@ -3996,21 +4042,11 @@ app.error((error) => {
           {
             type: 'divider'
           },
-          // Channel Auto-Responses Section
           {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Channel Auto-Responses*\n\nSet up automatic AI responses in specific channels (responds in threads).'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: 'Add Channel Response'
-              },
-              action_id: 'add_channel_auto_response_button',
-              style: 'primary'
+              text: '*Channel Auto-Responses:*\nSet up automatic responses in specific channels (responds in threads):'
             }
           },
           {
@@ -4020,7 +4056,16 @@ app.error((error) => {
                 type: 'button',
                 text: {
                   type: 'plain_text',
-                  text: 'View Channel Responses'
+                  text: '➕ Add Channel Response'
+                },
+                action_id: 'add_channel_auto_response_button',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '📋 View Channel Responses'
                 },
                 action_id: 'view_channel_auto_responses_button'
               }
@@ -4029,149 +4074,46 @@ app.error((error) => {
           {
             type: 'divider'
           },
-          // AI Behavior Settings Section
           {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*AI Behavior Settings*\n\nCustomize the AI\'s tone, company context, and welcome message.'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: 'Configure AI'
-              },
-              action_id: 'configure_system_prompt_button',
-              style: 'primary'
+              text: '*Integrations:*\nConfigure integrations to extend my capabilities:'
             }
           },
           {
-            type: 'divider'
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🔧 Setup Jira'
+                },
+                action_id: 'setup_jira_button',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🧹 Clean Chat History'
+                },
+                action_id: 'clean_chat_history_button',
+                style: 'danger'
+              },
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '❓ Help'
+                },
+                action_id: 'help_button'
+              }
+            ]
           }
         ];
 
-        // Add Jira Integration Section
-        if (jiraConfig && jiraConfig.jiraUrl) {
-          blocks.push({
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `*Jira Integration* ✅\n\nConnected to: ${jiraConfig.jiraUrl}\nYou can create tickets by asking me!`
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: 'Reconfigure'
-              },
-              action_id: 'setup_jira_button'
-            }
-          });
-        } else {
-          blocks.push({
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Jira Integration*\n\nConnect your Jira workspace to create tickets directly from chat.'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: 'Connect Jira'
-              },
-              action_id: 'setup_jira_button',
-              style: 'primary'
-            }
-          });
-        }
-
-        // Add Salesforce Integration Section
-        if (salesforceTokens) {
-          blocks.push({
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Salesforce Integration* ✅\n\nConnected! You can create leads, opportunities, accounts, cases, and tasks by asking me!'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: 'Reconfigure'
-              },
-              action_id: 'reconfigure_salesforce_button'
-            }
-          });
-          blocks.push({
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: 'Disconnect Salesforce'
-                },
-                action_id: 'disconnect_salesforce_button',
-                style: 'danger'
-              }
-            ]
-          });
-        } else {
-          blocks.push({
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Salesforce Integration*\n\nConnect your Salesforce org to create leads, opportunities, and more.'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: 'Connect Salesforce'
-              },
-              action_id: 'connect_salesforce_button',
-              style: 'primary'
-            }
-          });
-        }
-
-        blocks.push(
-          {
-            type: 'divider'
-          },
-          // Utility Actions Section
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Utility Actions*\n\nManage your conversation history and get help.'
-            }
-          },
-          {
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: 'Clear Chat History'
-                },
-                action_id: 'clear_chat_history_button'
-              },
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: 'Help'
-                },
-                action_id: 'help_button',
-                style: 'primary'
-              }
-            ]
-          }
-        );
 
         await client.views.publish({
           user_id: event.user,
@@ -4212,6 +4154,31 @@ app.error((error) => {
         await client.chat.postMessage({
           channel: body.user.id,
           text: '❌ Sorry, there was an error clearing your chat history. Please try again later.'
+        });
+      }
+    });
+
+    // Clean chat history button handler (alternative action_id)
+    app.action('clean_chat_history_button', async ({ ack, body, client }) => {
+      await ack();
+      
+      try {
+        const userId = body.user.id;
+        const teamId = body.team.id;
+        
+        // Clear conversation history from Redis
+        await redisService.clearConversation(teamId, userId);
+        
+        // Send confirmation message
+        await client.chat.postMessage({
+          channel: userId,
+          text: '🧹 *Chat history cleaned!*\n\nYour conversation history has been successfully cleaned. Future conversations will start fresh without previous context.'
+        });
+      } catch (error) {
+        console.error('Error cleaning chat history:', error);
+        await client.chat.postMessage({
+          channel: body.user.id,
+          text: '❌ Sorry, there was an error cleaning your chat history. Please try again later.'
         });
       }
     });
