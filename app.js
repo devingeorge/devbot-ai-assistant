@@ -3897,6 +3897,60 @@ app.error((error) => {
     
     console.log('✅ Salesforce integration configured for multi-tenant setup');
 
+    // App Home handler
+    app.event('app_home_opened', async ({ event, client }) => {
+      try {
+        console.log('App Home opened by user:', event.user);
+        await client.views.publish({
+          user_id: event.user,
+          view: {
+            type: 'home',
+            blocks: [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: '*Welcome to your AI Assistant! 🤖*\n\nI can help you with various tasks. Here are some ways to interact with me:\n\n• *Mention me* in any channel: `@AI Assistant <your question>`\n• *Use the slash command*: `/ai <your question>`\n• *Send me a direct message* with your questions\n\nWhat would you like to know?'
+                }
+              },
+              {
+                type: 'divider'
+              },
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: '*Quick Actions:*'
+                }
+              },
+              {
+                type: 'actions',
+                elements: [
+                  {
+                    type: 'button',
+                    text: {
+                      type: 'plain_text',
+                      text: 'Help'
+                    },
+                    action_id: 'help_button',
+                    style: 'primary'
+                  }
+                ]
+              }
+            ]
+          }
+        });
+      } catch (error) {
+        console.error('Error publishing home view:', error);
+      }
+    });
+
+    // Help button handler
+    app.action('help_button', async ({ ack, say }) => {
+      await ack();
+      await say('I\'m an AI assistant powered by GROK! I can help you with questions, provide information, and assist with various tasks. Just ask me anything!');
+    });
+
     // Add temporary Redis clear endpoint (remove after use)
     if (app.receiver && app.receiver.router) {
       app.receiver.router.get('/clear-redis', async (req, res) => {
