@@ -1163,7 +1163,12 @@ app.event('app_home_opened', async ({ event, client, context }) => {
               },
               action_id: 'add_suggested_prompt_button',
               style: 'primary'
-            },
+            }
+          ]
+        },
+        {
+          type: 'actions',
+          elements: [
             {
               type: 'button',
               text: {
@@ -1195,7 +1200,12 @@ app.event('app_home_opened', async ({ event, client, context }) => {
               },
               action_id: 'add_key_phrase_response_button',
               style: 'primary'
-            },
+            }
+          ]
+        },
+        {
+          type: 'actions',
+          elements: [
             {
               type: 'button',
               text: {
@@ -1255,7 +1265,7 @@ app.event('app_home_opened', async ({ event, client, context }) => {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `*Jira Integration: ${jiraStatus}*\nConnect your Jira org`
+            text: `*Jira Integration:* ${jiraStatus}\nConnect your Jira org`
           },
           accessory: {
             type: 'button',
@@ -1263,8 +1273,7 @@ app.event('app_home_opened', async ({ event, client, context }) => {
               type: 'plain_text',
               text: jiraButtonText
             },
-            action_id: 'setup_jira_button',
-            ...(jiraButtonStyle && { style: jiraButtonStyle })
+            action_id: 'setup_jira_button'
           }
         },
         {
