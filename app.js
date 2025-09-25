@@ -20,10 +20,36 @@ const app = new App({
 });
 
 // Helper function to check for key-phrase response matches
-async function checkKeyPhraseResponse(message, teamId) {
+async function checkKeyPhraseResponse(message, teamId, context = null) {
   try {
-    const responses = await redisService.getAllKeyPhraseResponses(teamId);
-    const enabledResponses = responses.filter(r => r.enabled !== false);
+    // For enterprise installs, aggregate responses from all team IDs
+    let allResponses = [];
+    if (context?.isEnterpriseInstall && context?.enterpriseId) {
+      // Get responses from enterprise-wide storage
+      const enterpriseResponses = await redisService.getAllKeyPhraseResponses(context.enterpriseId);
+      
+      // Get responses from known team IDs
+      const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
+      
+      // Get responses from all known team IDs
+      const allTeamResponses = [];
+      for (const teamId of knownTeamIds) {
+        const teamResponses = await redisService.getAllKeyPhraseResponses(teamId);
+        allTeamResponses.push(...teamResponses);
+      }
+      
+      // Combine all responses and remove duplicates by ID
+      const allResponsesMap = new Map();
+      [...enterpriseResponses, ...allTeamResponses].forEach(response => {
+        allResponsesMap.set(response.id, response);
+      });
+      allResponses = Array.from(allResponsesMap.values());
+    } else {
+      // Non-enterprise: use team-specific data
+      allResponses = await redisService.getAllKeyPhraseResponses(teamId);
+    }
+    
+    const enabledResponses = allResponses.filter(r => r.enabled !== false);
     
     for (const response of enabledResponses) {
       const trigger = response.triggerPhrase.toLowerCase();
@@ -704,11 +730,41 @@ app.event('assistant_thread_started', async ({ event, client, context }) => {
     console.log('Context teamId:', context?.teamId);
     console.log('Final teamId:', teamId);
     
-    // Get suggested prompts for this team
-    const prompts = await redisService.getAllSuggestedPrompts(teamId);
-    console.log('Retrieved prompts for team:', teamId, prompts);
-    const enabledPrompts = prompts.filter(prompt => prompt.enabled !== false);
-    console.log('Enabled prompts:', enabledPrompts);
+    // Get suggested prompts - aggregate from all team IDs for enterprise installs
+    let allPrompts = [];
+    if (context?.isEnterpriseInstall && context?.enterpriseId) {
+      // Get prompts from enterprise-wide storage
+      const enterprisePrompts = await redisService.getAllSuggestedPrompts(context.enterpriseId);
+      console.log('Enterprise-wide prompts for chat:', enterprisePrompts.length);
+      
+      // Get prompts from known team IDs
+      const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
+      console.log('Checking known team IDs for chat prompts:', knownTeamIds);
+      
+      // Get prompts from all known team IDs
+      const allTeamPrompts = [];
+      for (const teamId of knownTeamIds) {
+        const teamPrompts = await redisService.getAllSuggestedPrompts(teamId);
+        console.log(`Chat prompts from team ${teamId}:`, teamPrompts.length);
+        allTeamPrompts.push(...teamPrompts);
+      }
+      
+      // Combine all prompts and remove duplicates by ID
+      const allPromptsMap = new Map();
+      [...enterprisePrompts, ...allTeamPrompts].forEach(prompt => {
+        allPromptsMap.set(prompt.id, prompt);
+      });
+      allPrompts = Array.from(allPromptsMap.values());
+      
+      console.log('Total aggregated prompts for chat:', allPrompts.length);
+    } else {
+      // Non-enterprise: use team-specific data
+      allPrompts = await redisService.getAllSuggestedPrompts(teamId);
+      console.log('Retrieved prompts for team:', teamId, allPrompts);
+    }
+    
+    const enabledPrompts = allPrompts.filter(prompt => prompt.enabled !== false);
+    console.log('Enabled prompts for chat:', enabledPrompts);
     
     // Set suggested prompts if any exist
     if (enabledPrompts.length > 0) {
@@ -800,7 +856,7 @@ app.event('message', async ({ event, say, client, context }) => {
       // Check for key-phrase response matches first
       const teamId = context.teamId;
       if (teamId) {
-        const keyPhraseResponse = await checkKeyPhraseResponse(event.text, teamId);
+        const keyPhraseResponse = await checkKeyPhraseResponse(event.text, teamId, context);
         if (keyPhraseResponse) {
           console.log('Key-phrase response matched:', keyPhraseResponse.triggerPhrase);
           await sendKeyPhraseResponse(client, event.channel, keyPhraseResponse.responseText, event.thread_ts);
@@ -1022,7 +1078,7 @@ app.event('message', async ({ event, say, client, context }) => {
       // Check for key-phrase response matches first
       const teamId = context.teamId;
       if (teamId) {
-        const keyPhraseResponse = await checkKeyPhraseResponse(event.text, teamId);
+        const keyPhraseResponse = await checkKeyPhraseResponse(event.text, teamId, context);
         if (keyPhraseResponse) {
           console.log('Key-phrase response matched:', keyPhraseResponse.triggerPhrase);
           await sendKeyPhraseResponse(client, event.channel, keyPhraseResponse.responseText);
