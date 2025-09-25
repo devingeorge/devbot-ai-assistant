@@ -1,0 +1,90 @@
+{
+  "display_information": {
+    "name": "AI Assistant",
+    "description": "AI-powered assistant using GROK API to help with questions and tasks",
+    "background_color": "#2c2d30",
+    "long_description": "An intelligent AI assistant that can help you with questions, provide information, and assist with various tasks. Powered by GROK API, this bot can respond to mentions, slash commands, and direct messages."
+  },
+  "features": {
+    "app_home": {
+      "home_tab_enabled": true,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "bot_user": {
+      "display_name": "AI Assistant",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/ai",
+        "url": "https://devbot-ai-assistant.onrender.com/slack/events",
+        "description": "Ask the AI assistant a question",
+        "usage_hint": "<your question>",
+        "should_escape": false
+      },
+      {
+        "command": "/integrations",
+        "url": "https://devbot-ai-assistant.onrender.com/slack/events",
+        "description": "List configured integrations",
+        "usage_hint": "",
+        "should_escape": false
+      },
+      {
+        "command": "/disconnect-salesforce",
+        "url": "https://devbot-ai-assistant.onrender.com/slack/events",
+        "description": "Disconnect Salesforce integration",
+        "usage_hint": "",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": [
+        "chat:write",
+        "im:history",
+        "im:read",
+        "im:write"
+      ],
+      "bot": [
+        "app_mentions:read",
+        "assistant:write",
+        "channels:history",
+        "channels:join",
+        "channels:read",
+        "chat:write",
+        "chat:write.public",
+        "commands",
+        "groups:history",
+        "groups:read",
+        "groups:write",
+        "im:history",
+        "im:read",
+        "im:write",
+        "users:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://devbot-ai-assistant.onrender.com/slack/events",
+      "bot_events": [
+        "app_mention",
+        "assistant_thread_started",
+        "assistant_thread_context_changed",
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "app_home_opened"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://devbot-ai-assistant.onrender.com/slack/events"
+    },
+    "org_deploy_enabled": true,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
