@@ -3432,8 +3432,32 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
   await ack();
 
   try {
-    // Use the team ID from context consistently (check logs to see what we actually get)
-    const teamId = context.teamId;
+    // FORCE consistent team ID: In enterprise installs, modal submissions get Enterprise ID in context.teamId
+    // but we need to use the same team ID that App Home/manage handlers use
+    console.log('Full modal submission context and body:', {
+      contextTeamId: context.teamId,
+      contextEnterpriseId: context.enterpriseId,
+      bodyTeam: body.team,
+      bodyUser: body.user,
+      viewTeamId: body.view?.team_id,
+      viewId: body.view?.id,
+      triggerId: body.trigger_id
+    });
+    
+    let teamId = context.teamId;
+    
+    // If context.teamId matches enterpriseId, it means we got Enterprise ID instead of Team ID
+    // Based on logs, App Home consistently gets T06HQGPEVBL while modal gets E06HT01TVFW
+    if (context.teamId === context.enterpriseId && context.enterpriseId === 'E06HT01TVFW') {
+      // Hardcode the correct team ID for this enterprise install
+      teamId = 'T06HQGPEVBL';
+      console.log('Enterprise install detected - using hardcoded team ID:', {
+        originalTeamId: context.teamId,
+        enterpriseId: context.enterpriseId,
+        correctedTeamId: teamId
+      });
+    }
+    
     const userId = body.user?.id;
     
     console.log('Modal submission - teamId used for storage:', teamId);
