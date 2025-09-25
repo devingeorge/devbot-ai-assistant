@@ -940,11 +940,14 @@ app.event('message', async ({ event, say, client, context }) => {
         textPreview: userText.substring(0, 50)
       });
 
-      // Check if this channel is being monitored
-      const monitoredChannel = await channelMonitoring.isChannelMonitored(team, channel);
-      if (!monitoredChannel) {
-        return; // Channel is not being monitored
-      }
+    // Check if this channel is being monitored
+    console.log('Checking if channel is monitored:', { team, channel });
+    const monitoredChannel = await channelMonitoring.isChannelMonitored(team, channel);
+    console.log('Channel monitoring result:', monitoredChannel);
+    if (!monitoredChannel) {
+      console.log('Channel is not being monitored, skipping');
+      return; // Channel is not being monitored
+    }
 
       console.log('Processing message in monitored channel:', {
         team,
@@ -3325,7 +3328,9 @@ app.action('manage_monitored_channels', async ({ ack, body, client, context }) =
 
   try {
     const teamId = context.teamId || body.team?.id;
+    console.log('Manage channels - teamId used for lookup:', teamId);
     const channels = await channelMonitoring.getMonitoredChannels(teamId);
+    console.log('Found monitored channels:', channels.length);
 
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -3430,6 +3435,9 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
   try {
     const teamId = context.teamId || body.team?.id;
     const userId = body.user?.id;
+    
+    console.log('Modal submission - teamId used for storage:', teamId);
+    console.log('Context details:', { teamId: context.teamId, bodyTeamId: body.team?.id, enterpriseId: context.enterpriseId });
 
     const values = view.state.values;
     const channelId = values.channel_select?.channel_input?.selected_channel;
