@@ -3327,8 +3327,8 @@ app.action('manage_monitored_channels', async ({ ack, body, client, context }) =
   await ack();
 
   try {
-    // For enterprise installs, use the team ID from the event, not context.teamId (which is enterprise ID)
-    const teamId = body.team?.id || context.teamId;
+    // Use the team ID from context consistently (check logs to see what we actually get)
+    const teamId = context.teamId;
     console.log('Manage channels - teamId used for lookup:', teamId);
     console.log('Body team vs context teamId:', { bodyTeam: body.team?.id, contextTeamId: context.teamId });
     const channels = await channelMonitoring.getMonitoredChannels(teamId);
@@ -3436,8 +3436,8 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
   await ack();
 
   try {
-    // For enterprise installs, use the team ID from the event, not context.teamId (which is enterprise ID)
-    const teamId = body.team?.id || context.teamId;
+    // Use the team ID from context consistently (check logs to see what we actually get)
+    const teamId = context.teamId;
     const userId = body.user?.id;
     
     console.log('Modal submission - teamId used for storage:', teamId);
