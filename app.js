@@ -202,7 +202,7 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
   }
 }
 
-// Handle Salesforce requests
+// Handle Salesforce requests with automatic token refresh
 async function handleSalesforceRequest(message, tokens, userId, conversationHistory = []) {
   try {
     const lowerMessage = message.toLowerCase();
@@ -222,7 +222,8 @@ async function handleSalesforceRequest(message, tokens, userId, conversationHist
       const leadData = extractLeadData(fullConversation);
       console.log('Creating lead with data:', leadData);
       
-      const result = await salesforceService.createLead(leadData, tokens.access_token);
+      // Try to create lead with automatic token refresh
+      const result = await createLeadWithRefresh(leadData, tokens, userId);
       
       if (result.success) {
         return `✅ Lead created successfully!\n\n**Lead ID:** ${result.id}\n**Link:** ${result.url}\n\nIs there anything else I can help you with?`;
@@ -283,6 +284,68 @@ async function handleSalesforceRequest(message, tokens, userId, conversationHist
   } catch (error) {
     console.error('Error handling Salesforce request:', error);
     return `❌ Salesforce operation failed: ${error.message}`;
+  }
+}
+
+// Create lead with automatic token refresh
+async function createLeadWithRefresh(leadData, tokens, userId) {
+  try {
+    // First attempt with current access token
+    let result = await salesforceService.createLead(leadData, tokens.access_token);
+    
+    // If successful, return result
+    if (result.success) {
+      return result;
+    }
+    
+    // If failed due to invalid session and we have a refresh token, try to refresh
+    if (result.error && result.error.includes('INVALID_SESSION_ID') && tokens.refresh_token) {
+      console.log('Access token expired, attempting to refresh...');
+      
+      try {
+        // Refresh the token
+        const refreshedTokens = await salesforceService.refreshToken(
+          tokens.refresh_token,
+          process.env.SALESFORCE_CLIENT_ID,
+          process.env.SALESFORCE_CLIENT_SECRET
+        );
+        
+        // Update tokens in Redis
+        const teamId = tokens.teamId || 'unknown';
+        const updatedTokens = {
+          ...tokens,
+          access_token: refreshedTokens.access_token,
+          refresh_token: refreshedTokens.refresh_token || tokens.refresh_token,
+          instance_url: refreshedTokens.instance_url || tokens.instance_url,
+          updatedAt: new Date().toISOString()
+        };
+        
+        await redisService.saveSalesforceTokens(teamId, userId, updatedTokens);
+        console.log('Tokens refreshed and saved successfully');
+        
+        // Retry the lead creation with new token
+        result = await salesforceService.createLead(leadData, refreshedTokens.access_token);
+        
+        if (result.success) {
+          console.log('Lead created successfully after token refresh');
+          return result;
+        }
+      } catch (refreshError) {
+        console.error('Token refresh failed:', refreshError);
+        return {
+          success: false,
+          error: 'Token expired and refresh failed. Please reconnect your Salesforce integration.'
+        };
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('Error in createLeadWithRefresh:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error occurred'
+    };
   }
 }
 
