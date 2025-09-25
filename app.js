@@ -1077,14 +1077,20 @@ app.event('message', async ({ event, say, client, context }) => {
 });
 
 // Home tab handler
-app.event('app_home_opened', async ({ event, client }) => {
+app.event('app_home_opened', async ({ event, client, context }) => {
   try {
     // Check if we have valid tokens before trying to publish
-    const teamId = event.team;
+    const teamId = context.teamId || event.team;
     if (!teamId) {
       console.log('No team ID found in app_home_opened event, skipping home view publish');
       return;
     }
+
+    console.log('App Home opened by user:', event.user);
+    console.log('App Home event context:', {
+      context: context,
+      eventTeam: event.team
+    });
 
     await client.views.publish({
       user_id: event.user,
