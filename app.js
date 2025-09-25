@@ -1437,11 +1437,11 @@ app.action('add_suggested_prompt_button', async ({ ack, body, client }) => {
 });
 
 // View suggested prompts button handler
-app.action('view_suggested_prompts_button', async ({ ack, body, client }) => {
+app.action('view_suggested_prompts_button', async ({ ack, body, client, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const teamId = context.teamId || body.team?.id || 'unknown';
     console.log('View prompts - teamId:', teamId);
     const prompts = await redisService.getAllSuggestedPrompts(teamId);
     console.log('View prompts - retrieved prompts:', prompts);
@@ -1708,11 +1708,11 @@ app.view('jira_setup', async ({ ack, body, view, client }) => {
 });
 
 // Add suggested prompt modal submission handler
-app.view('add_suggested_prompt', async ({ ack, body, view, client }) => {
+app.view('add_suggested_prompt', async ({ ack, body, view, client, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const teamId = context.teamId || body.team?.id || 'unknown';
     const values = view.state.values;
     
     const buttonText = values.prompt_button_text.button_text.value;
@@ -1953,11 +1953,11 @@ app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action }) => {
 });
 
 // Edit suggested prompt modal submission handler
-app.view('edit_suggested_prompt', async ({ ack, body, view, client }) => {
+app.view('edit_suggested_prompt', async ({ ack, body, view, client, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const teamId = context.teamId || body.team?.id || 'unknown';
     const promptId = view.private_metadata;
     const values = view.state.values;
     
@@ -2171,11 +2171,11 @@ app.action('add_key_phrase_response_button', async ({ ack, body, client }) => {
 });
 
 // Add key-phrase response modal submission handler
-app.view('add_key_phrase_response', async ({ ack, body, view, client }) => {
+app.view('add_key_phrase_response', async ({ ack, body, view, client, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const teamId = context.teamId || body.team?.id || 'unknown';
     const values = view.state.values;
     
     const triggerPhrase = values.trigger_phrase.trigger_text.value;
@@ -2328,11 +2328,11 @@ async function updateViewKeyPhraseResponsesModal(client, body, teamId) {
 }
 
 // View key-phrase responses button handler
-app.action('view_key_phrase_responses_button', async ({ ack, body, client }) => {
+app.action('view_key_phrase_responses_button', async ({ ack, body, client, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const teamId = context.teamId || body.team?.id || 'unknown';
     console.log('View key-phrase responses - teamId:', teamId);
     const blocks = await getViewKeyPhraseResponsesBlocks(teamId);
     
@@ -2453,11 +2453,11 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action }) => {
 });
 
 // Edit key-phrase response modal submission handler
-app.view('edit_key_phrase_response', async ({ ack, body, view, client }) => {
+app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    const teamId = context.teamId || body.team?.id || 'unknown';
     const responseId = view.private_metadata;
     const values = view.state.values;
     
