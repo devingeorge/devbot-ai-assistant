@@ -1097,11 +1097,17 @@ app.event('app_home_opened', async ({ event, client, context }) => {
     let jiraButtonStyle = 'primary';
     
     try {
+      console.log('Checking Jira status for teamId:', teamId);
       const jiraCredentials = await redisService.getCredentials(teamId, 'jira');
+      console.log('Jira credentials result:', jiraCredentials ? 'Found credentials' : 'No credentials found');
+      
       if (jiraCredentials) {
         jiraStatus = '✅ Configured';
         jiraButtonText = '🔧 Manage Jira';
         jiraButtonStyle = 'default';
+        console.log('Jira status updated to: Configured');
+      } else {
+        console.log('Jira status remains: Not Configured');
       }
     } catch (error) {
       console.log('Error checking Jira status:', error);
