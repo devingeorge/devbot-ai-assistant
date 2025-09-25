@@ -3273,8 +3273,18 @@ app.command('/integrations', async ({ command, ack, respond }) => {
 });
 
 // Add request logging middleware
-app.use(async ({ next }) => {
+app.use(async ({ body, next }) => {
   console.log('Processing Slack request...');
+  if (body.type === 'block_actions') {
+    console.log('Block action received:', {
+      type: body.type,
+      actions: body.actions?.map(action => ({
+        action_id: action.action_id,
+        type: action.type,
+        value: action.value
+      }))
+    });
+  }
   await next();
 });
 
@@ -3284,6 +3294,7 @@ app.use(async ({ next }) => {
 
 // Add Monitored Channel button
 app.action('add_monitored_channel', async ({ ack, body, client }) => {
+  console.log('Add monitored channel button clicked');
   await ack();
 
   try {
@@ -3298,6 +3309,7 @@ app.action('add_monitored_channel', async ({ ack, body, client }) => {
 
 // Manage Monitored Channels button
 app.action('manage_monitored_channels', async ({ ack, body, client, context }) => {
+  console.log('Manage monitored channels button clicked');
   await ack();
 
   try {
