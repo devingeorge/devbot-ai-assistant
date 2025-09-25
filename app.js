@@ -3911,13 +3911,7 @@ app.error((error) => {
           return;
         }
         
-        // Get user info to check if they're an admin
-        const userInfo = await client.users.info({ user: userId });
-        const isAdmin = userInfo.user.is_admin || userInfo.user.is_owner;
-        
-        // Get integration status
-        const jiraConfig = await redisService.getJiraConfig(teamId);
-        const salesforceTokens = await redisService.getSalesforceTokens(teamId, userId);
+        // No need to check integration status for static layout
         
         const blocks = [
           {
