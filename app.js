@@ -800,8 +800,22 @@ app.event('assistant_thread_context_changed', async ({ event, say, client }) => 
 
 // Listen to messages in AI Assistant threads
 app.event('message', async ({ event, say, client, context }) => {
+  console.log('=== MESSAGE EVENT RECEIVED ===');
+  console.log('Event details:', {
+    type: event.type,
+    channel: event.channel,
+    channel_type: event.channel_type,
+    user: event.user,
+    text: event.text,
+    bot_id: event.bot_id,
+    subtype: event.subtype,
+    team: event.team
+  });
+  console.log('Context:', context);
+  
   // Skip messages from bots (including ourselves)
   if (event.bot_id || event.subtype) {
+    console.log('Skipping bot message or message with subtype');
     return;
   }
 
@@ -866,6 +880,21 @@ app.event('message', async ({ event, say, client, context }) => {
       
       if (teamId) {
         console.log('Checking for channel auto-response in channel:', event.channel, 'for team:', teamId);
+        
+        // Check if bot is in the channel
+        try {
+          const channelInfo = await client.conversations.info({
+            channel: event.channel
+          });
+          console.log('Channel info:', {
+            name: channelInfo.channel.name,
+            is_member: channelInfo.channel.is_member,
+            is_private: channelInfo.channel.is_private
+          });
+        } catch (channelError) {
+          console.error('Error getting channel info:', channelError);
+        }
+        
         const channelAutoResponse = await checkChannelAutoResponse(event.channel, teamId);
         console.log('Channel auto-response result:', channelAutoResponse);
         
