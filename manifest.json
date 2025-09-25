@@ -62,6 +62,7 @@
         "im:history",
         "im:read",
         "im:write",
+        "team:read",
         "users:read"
       ]
     }
