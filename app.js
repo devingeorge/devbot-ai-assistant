@@ -847,6 +847,165 @@ app.event('message', async ({ event, say, client, context }) => {
         text: event.text
       });
       
+      // Channel monitoring logic - check for monitored channels
+      if (event.channel_type === 'channel') {
+        // Skip system messages but allow bot messages
+        const systemSubtypes = ['channel_join', 'channel_leave', 'channel_topic', 'channel_purpose', 'channel_name', 'channel_archive', 'channel_unarchive', 'pinned_item', 'unpinned_item'];
+        if (systemSubtypes.includes(event.subtype)) return;
+        if (!event.text) return;
+
+        // Skip messages from the bot itself to prevent loops
+        if (event.bot_id) return;
+
+        const team = context.teamId || event.team;
+        const channel = event.channel;
+        const user = event.user;
+        const userText = String(event.text || '').slice(0, 4000);
+
+        console.log('Processing message in channel:', {
+          team,
+          channel,
+          user,
+          subtype: event.subtype,
+          bot_id: event.bot_id,
+          hasText: !!event.text,
+          textPreview: userText.substring(0, 50)
+        });
+
+        // Check if this channel is being monitored
+        console.log('Checking if channel is monitored:', { team, channel });
+        const monitoredChannel = await channelMonitoring.isChannelMonitored(team, channel);
+        console.log('Channel monitoring result:', monitoredChannel);
+        if (!monitoredChannel) {
+          console.log('Channel is not being monitored, skipping');
+          return; // Channel is not being monitored
+        }
+
+        console.log('Processing message in monitored channel:', {
+          team,
+          channel,
+          user,
+          responseType: monitoredChannel.responseType
+        });
+
+        // Build system prompt based on response type
+        let systemPrompt;
+        switch (monitoredChannel.responseType) {
+          case 'analytical':
+            systemPrompt = `You are an analytical assistant monitoring this channel. Analyze the recent message for insights, patterns, and key points. Provide thoughtful analysis in a thread reply. Keep responses concise and focused on actionable insights.`;
+            break;
+          case 'summary':
+            systemPrompt = `You are a summarization assistant monitoring this channel. Provide a concise summary of the recent message and its context. Keep summaries brief and highlight key points.`;
+            break;
+          case 'questions':
+            systemPrompt = `You are a facilitation assistant monitoring this channel. Ask thoughtful, clarifying questions about the recent message to help facilitate better discussion. Focus on questions that add value and encourage deeper thinking.`;
+            break;
+          case 'insights':
+            systemPrompt = `You are an insights assistant monitoring this channel. Share observations and actionable insights about the recent message. Focus on practical takeaways and next steps.`;
+            break;
+          default:
+            systemPrompt = `You are monitoring this channel and responding to messages. Provide a helpful response based on the recent message.`;
+        }
+
+        // Get recent messages for context
+        let recentMessages = [];
+        try {
+          const hist = await client.conversations.history({
+            channel: channel,
+            limit: 10
+          });
+          if (hist.ok && hist.messages.length) {
+            recentMessages = hist.messages;
+          }
+        } catch (error) {
+          console.log('Error getting recent messages:', error);
+        }
+
+        // Build context from recent messages
+        const contextText = recentMessages.length > 0
+          ? recentMessages.slice(-5).map(m => `${m.user}: ${m.text}`).join('\n')
+          : userText;
+
+        // Create conversation history for channel monitoring
+        let conversationHistory = [];
+        for (const message of recentMessages) {
+          if (message.ts === event.ts) continue; // Skip current message
+          const role = message.bot_id ? 'assistant' : 'user';
+          conversationHistory.push({
+            role: role,
+            content: message.text || ''
+          });
+        }
+        conversationHistory = conversationHistory.reverse(); // Reverse to get chronological order
+
+        // Add current user message
+        conversationHistory.push({
+          role: 'user',
+          content: userText
+        });
+
+        // Get AI response with conversation context
+        const aiResponse = await callGrokAPI(userText + '\n\n' + systemPrompt, user, conversationHistory, team);
+
+        // Respond in thread to keep main channel clean
+        await client.chat.postMessage({
+          channel: channel,
+          thread_ts: event.ts, // Reply in thread
+          text: aiResponse,
+          unfurl_links: false,
+          unfurl_media: false
+        });
+
+        // Check if we should create a Jira ticket (after 1st bot response)
+        console.log('Checking auto-Jira ticket creation:', {
+          autoCreateJiraTickets: monitoredChannel.autoCreateJiraTickets,
+          team,
+          channel,
+          threadTs: event.ts
+        });
+
+        if (monitoredChannel.autoCreateJiraTickets) {
+          const responseCount = await channelMonitoring.incrementThreadResponseCount(team, channel, event.ts);
+
+          console.log('Thread response count:', {
+            team,
+            channel,
+            threadTs: event.ts,
+            responseCount
+          });
+
+          if (responseCount === 1) {
+            console.log('Creating auto Jira ticket after 1st bot response:', { team, channel, threadTs: event.ts });
+
+            try {
+              // Create a summary for the Jira ticket
+              const ticketDescription = `Auto-generated ticket from monitored channel #${monitoredChannel.channelName}\n\nThread started by: ${userText}\nResponse Type: ${monitoredChannel.responseType}\n\nThis ticket was automatically created after the bot's 1st response in the thread to track ongoing discussion and ensure follow-up.`;
+
+              // For now, create a simple ticket structure since we need Jira integration functions
+              const ticketData = {
+                summary: `Discussion in #${monitoredChannel.channelName}`.substring(0, 200),
+                description: ticketDescription,
+                issueType: 'Task',
+                priority: 'Medium',
+              };
+
+              console.log('Ticket data for auto-Jira creation:', ticketData);
+
+              // Post a placeholder message about the ticket (real Jira integration would go here)
+              await client.chat.postMessage({
+                channel: channel,
+                thread_ts: event.ts,
+                text: `🎫 *Auto-Jira Ticket*\n\nA Jira ticket would be created here to track this discussion.\n\nSummary: ${ticketData.summary}\nResponse Type: ${monitoredChannel.responseType}`
+              });
+
+              console.log('Auto Jira ticket placeholder created successfully');
+            } catch (error) {
+              console.error('Error creating auto Jira ticket:', error);
+            }
+          }
+        }
+      }
+      
     } catch (error) {
       console.error('Error processing channel message:', error);
       
@@ -912,169 +1071,6 @@ app.event('message', async ({ event, say, client, context }) => {
       }
       
       await say('Sorry, I encountered an error processing your request. Please try again.');
-    }
-  }
-  // Handle channel messages - check for monitored channels
-  else if (event.channel_type === 'channel') {
-    try {
-      // Skip system messages but allow bot messages
-      const systemSubtypes = ['channel_join', 'channel_leave', 'channel_topic', 'channel_purpose', 'channel_name', 'channel_archive', 'channel_unarchive', 'pinned_item', 'unpinned_item'];
-      if (systemSubtypes.includes(event.subtype)) return;
-      if (!event.text) return;
-
-      // Skip messages from the bot itself to prevent loops
-      if (event.bot_id) return;
-
-      const team = context.teamId || event.team;
-      const channel = event.channel;
-      const user = event.user;
-      const userText = String(event.text || '').slice(0, 4000);
-
-      console.log('Processing message in channel:', {
-        team,
-        channel,
-        user,
-        subtype: event.subtype,
-        bot_id: event.bot_id,
-        hasText: !!event.text,
-        textPreview: userText.substring(0, 50)
-      });
-
-    // Check if this channel is being monitored
-    console.log('Checking if channel is monitored:', { team, channel });
-    const monitoredChannel = await channelMonitoring.isChannelMonitored(team, channel);
-    console.log('Channel monitoring result:', monitoredChannel);
-    if (!monitoredChannel) {
-      console.log('Channel is not being monitored, skipping');
-      return; // Channel is not being monitored
-    }
-
-      console.log('Processing message in monitored channel:', {
-        team,
-        channel,
-        user,
-        responseType: monitoredChannel.responseType
-      });
-
-      // Build system prompt based on response type
-      let systemPrompt;
-      switch (monitoredChannel.responseType) {
-        case 'analytical':
-          systemPrompt = `You are an analytical assistant monitoring this channel. Analyze the recent message for insights, patterns, and key points. Provide thoughtful analysis in a thread reply. Keep responses concise and focused on actionable insights.`;
-          break;
-        case 'summary':
-          systemPrompt = `You are a summarization assistant monitoring this channel. Provide a concise summary of the recent message and its context. Keep summaries brief and highlight key points.`;
-          break;
-        case 'questions':
-          systemPrompt = `You are a facilitation assistant monitoring this channel. Ask thoughtful, clarifying questions about the recent message to help facilitate better discussion. Focus on questions that add value and encourage deeper thinking.`;
-          break;
-        case 'insights':
-          systemPrompt = `You are an insights assistant monitoring this channel. Share observations and actionable insights about the recent message. Focus on practical takeaways and next steps.`;
-          break;
-        default:
-          systemPrompt = `You are monitoring this channel and responding to messages. Provide a helpful response based on the recent message.`;
-      }
-
-      // Get recent messages for context
-      let recentMessages = [];
-      try {
-        const hist = await client.conversations.history({
-          channel: channel,
-          limit: 10
-        });
-        if (hist.ok && hist.messages.length) {
-          recentMessages = hist.messages;
-        }
-      } catch (error) {
-        console.log('Error getting recent messages:', error);
-      }
-
-      // Build context from recent messages
-      const contextText = recentMessages.length > 0
-        ? recentMessages.slice(-5).map(m => `${m.user}: ${m.text}`).join('\n')
-        : userText;
-
-      // Create conversation history for channel monitoring
-      let conversationHistory = [];
-      for (const message of recentMessages) {
-        if (message.ts === event.ts) continue; // Skip current message
-        const role = message.bot_id ? 'assistant' : 'user';
-        conversationHistory.push({
-          role: role,
-          content: message.text || ''
-        });
-      }
-      conversationHistory = conversationHistory.reverse(); // Reverse to get chronological order
-
-      // Add current user message
-      conversationHistory.push({
-        role: 'user',
-        content: userText
-      });
-
-      // Get AI response with conversation context
-      const aiResponse = await callGrokAPI(userText + '\n\n' + systemPrompt, user, conversationHistory, team);
-
-      // Respond in thread to keep main channel clean
-      await client.chat.postMessage({
-        channel: channel,
-        thread_ts: event.ts, // Reply in thread
-        text: aiResponse,
-        unfurl_links: false,
-        unfurl_media: false
-      });
-
-      // Check if we should create a Jira ticket (after 1st bot response)
-      console.log('Checking auto-Jira ticket creation:', {
-        autoCreateJiraTickets: monitoredChannel.autoCreateJiraTickets,
-        team,
-        channel,
-        threadTs: event.ts
-      });
-
-      if (monitoredChannel.autoCreateJiraTickets) {
-        const responseCount = await channelMonitoring.incrementThreadResponseCount(team, channel, event.ts);
-
-        console.log('Thread response count:', {
-          team,
-          channel,
-          threadTs: event.ts,
-          responseCount
-        });
-
-        if (responseCount === 1) {
-          console.log('Creating auto Jira ticket after 1st bot response:', { team, channel, threadTs: event.ts });
-
-          try {
-            // Create a summary for the Jira ticket
-            const ticketDescription = `Auto-generated ticket from monitored channel #${monitoredChannel.channelName}\n\nThread started by: ${userText}\nResponse Type: ${monitoredChannel.responseType}\n\nThis ticket was automatically created after the bot's 1st response in the thread to track ongoing discussion and ensure follow-up.`;
-
-            // For now, create a simple ticket structure since we need Jira integration functions
-            const ticketData = {
-              summary: `Discussion in #${monitoredChannel.channelName}`.substring(0, 200),
-              description: ticketDescription,
-              issueType: 'Task',
-              priority: 'Medium',
-            };
-
-            console.log('Ticket data for auto-Jira creation:', ticketData);
-
-            // Post a placeholder message about the ticket (real Jira integration would go here)
-            await client.chat.postMessage({
-              channel: channel,
-              thread_ts: event.ts,
-              text: `🎫 *Auto-Jira Ticket*\n\nA Jira ticket would be created here to track this discussion.\n\nSummary: ${ticketData.summary}\nResponse Type: ${monitoredChannel.responseType}`
-            });
-
-            console.log('Auto Jira ticket placeholder created successfully');
-          } catch (error) {
-            console.error('Error creating auto Jira ticket:', error);
-          }
-        }
-      }
-
-    } catch (error) {
-      console.error('Error processing monitored channel message:', error);
     }
   }
 });
