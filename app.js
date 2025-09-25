@@ -3521,6 +3521,28 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
   }
 });
 
+// ============================================================================
+// MODAL FORM ELEMENT HANDLERS (for form interactions within modals)
+// ============================================================================
+
+// Handle channel selection in modal
+app.action('channel_input', async ({ ack }) => {
+  await ack();
+  // No additional action needed - just acknowledge the selection
+});
+
+// Handle response type selection in modal
+app.action('response_type_input', async ({ ack }) => {
+  await ack();
+  // No additional action needed - just acknowledge the selection
+});
+
+// Handle auto-jira checkbox in modal
+app.action('auto_jira_input', async ({ ack }) => {
+  await ack();
+  // No additional action needed - just acknowledge the selection
+});
+
 
 // Error handling
 app.error((error) => {
