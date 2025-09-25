@@ -3366,72 +3366,6 @@ app.action('connect_salesforce_button', async ({ ack, body, client }) => {
   }
 });
 
-// Add OAuth callback route to the HTTP receiver
-app.receiver.router.get('/oauth/salesforce/callback', async (req, res) => {
-  try {
-    const { code, state } = req.query;
-    
-    if (!code || !state) {
-      return res.status(400).send('Missing authorization code or state');
-    }
-    
-    const [teamId, userId] = state.split(':');
-    
-    // Exchange code for tokens
-    const tokenResponse = await axios.post('https://login.salesforce.com/services/oauth2/token', {
-      grant_type: 'authorization_code',
-      client_id: process.env.SALESFORCE_CLIENT_ID,
-      client_secret: process.env.SALESFORCE_CLIENT_SECRET,
-      redirect_uri: process.env.SALESFORCE_REDIRECT_URL,
-      code: code
-    });
-    
-    const tokenData = {
-      access_token: tokenResponse.data.access_token,
-      refresh_token: tokenResponse.data.refresh_token,
-      instance_url: tokenResponse.data.instance_url,
-      id: tokenResponse.data.id
-    };
-    
-    // Save tokens to Redis
-    await redisService.saveSalesforceTokens(teamId, userId, tokenData);
-    
-    res.send(`
-      <html>
-        <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-          <h2 style="color: #00D4AA;">✅ Salesforce Connected Successfully!</h2>
-          <p>You can now close this window and return to Slack.</p>
-          <p>Your AI assistant can now help you with Salesforce operations!</p>
-          <div style="margin-top: 30px; padding: 20px; background-color: #f8f9fa; border-radius: 8px;">
-            <p><strong>What you can do now:</strong></p>
-            <ul style="text-align: left; display: inline-block;">
-              <li>Create leads, opportunities, and accounts</li>
-              <li>Update records and create tasks</li>
-              <li>Query your Salesforce data</li>
-              <li>Get AI-powered insights from your CRM data</li>
-            </ul>
-          </div>
-          <script>
-            setTimeout(() => {
-              window.close();
-            }, 5000);
-          </script>
-        </body>
-      </html>
-    `);
-  } catch (error) {
-    console.error('Salesforce OAuth callback error:', error);
-    res.status(500).send(`
-      <html>
-        <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-          <h2 style="color: #ff4444;">❌ Connection Failed</h2>
-          <p>There was an error connecting to Salesforce. Please try again.</p>
-          <p style="color: #666; font-size: 12px;">Error: ${error.message}</p>
-        </body>
-      </html>
-    `);
-  }
-});
 
 // Disconnect Salesforce command
 app.command('/disconnect-salesforce', async ({ command, ack, respond }) => {
@@ -3504,6 +3438,78 @@ app.error((error) => {
     console.log('- XAI_API_KEY:', process.env.XAI_API_KEY ? 'Set' : 'Missing');
     console.log('- REDIS_URL:', process.env.REDIS_URL ? 'Set' : 'Missing');
     console.log('- PORT:', process.env.PORT || 3000);
+    
+    // Add OAuth callback route after app starts
+    if (app.receiver && app.receiver.router) {
+      app.receiver.router.get('/oauth/salesforce/callback', async (req, res) => {
+        try {
+          const { code, state } = req.query;
+          
+          if (!code || !state) {
+            return res.status(400).send('Missing authorization code or state');
+          }
+          
+          const [teamId, userId] = state.split(':');
+          
+          // Exchange code for tokens
+          const tokenResponse = await axios.post('https://login.salesforce.com/services/oauth2/token', {
+            grant_type: 'authorization_code',
+            client_id: process.env.SALESFORCE_CLIENT_ID,
+            client_secret: process.env.SALESFORCE_CLIENT_SECRET,
+            redirect_uri: process.env.SALESFORCE_REDIRECT_URL,
+            code: code
+          });
+          
+          const tokenData = {
+            access_token: tokenResponse.data.access_token,
+            refresh_token: tokenResponse.data.refresh_token,
+            instance_url: tokenResponse.data.instance_url,
+            id: tokenResponse.data.id
+          };
+          
+          // Save tokens to Redis
+          await redisService.saveSalesforceTokens(teamId, userId, tokenData);
+          
+          res.send(`
+            <html>
+              <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                <h2 style="color: #00D4AA;">✅ Salesforce Connected Successfully!</h2>
+                <p>You can now close this window and return to Slack.</p>
+                <p>Your AI assistant can now help you with Salesforce operations!</p>
+                <div style="margin-top: 30px; padding: 20px; background-color: #f8f9fa; border-radius: 8px;">
+                  <p><strong>What you can do now:</strong></p>
+                  <ul style="text-align: left; display: inline-block;">
+                    <li>Create leads, opportunities, and accounts</li>
+                    <li>Update records and create tasks</li>
+                    <li>Query your Salesforce data</li>
+                    <li>Get AI-powered insights from your CRM data</li>
+                  </ul>
+                </div>
+                <script>
+                  setTimeout(() => {
+                    window.close();
+                  }, 5000);
+                </script>
+              </body>
+            </html>
+          `);
+        } catch (error) {
+          console.error('Salesforce OAuth callback error:', error);
+          res.status(500).send(`
+            <html>
+              <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                <h2 style="color: #ff4444;">❌ Connection Failed</h2>
+                <p>There was an error connecting to Salesforce. Please try again.</p>
+                <p style="color: #666; font-size: 12px;">Error: ${error.message}</p>
+              </body>
+            </html>
+          `);
+        }
+      });
+      console.log('✅ Salesforce OAuth callback route added');
+    } else {
+      console.warn('⚠️ Could not add Salesforce OAuth callback route - router not available');
+    }
 
     // Graceful shutdown handling
     const shutdown = async (signal) => {
