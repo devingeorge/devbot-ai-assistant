@@ -533,10 +533,31 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       }
     }
     
-    // Get user-specific system prompt configuration
+    // Get user-specific system prompt configuration - aggregate from all team IDs for enterprise installs
     let userSystemPrompt = null;
     if (teamId && userId) {
-      userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+      // For enterprise installs, try to get system prompt from enterprise ID first, then fall back to team IDs
+      if (teamId.startsWith('E')) {
+        // This is an enterprise ID, check enterprise first
+        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+        console.log('Enterprise system prompt for chat:', userSystemPrompt ? 'Found' : 'Not found');
+        
+        // If not found in enterprise, check known team IDs
+        if (!userSystemPrompt) {
+          const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
+          for (const teamId of knownTeamIds) {
+            const teamPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+            if (teamPrompt) {
+              userSystemPrompt = teamPrompt;
+              console.log(`Found system prompt for chat in team ${teamId}`);
+              break;
+            }
+          }
+        }
+      } else {
+        // Non-enterprise: use team-specific data
+        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+      }
     }
     
     // Build system prompt with integration capabilities and user preferences
@@ -795,12 +816,36 @@ app.event('assistant_thread_started', async ({ event, client, context }) => {
       console.log('No enabled prompts found for team:', teamId);
     }
     
-    // Get user-specific welcome message
+    // Get user-specific welcome message - aggregate from all team IDs for enterprise installs
     const userId = event.assistant_thread?.user_id;
     let welcomeMessage = 'Hello! How can I help you today?'; // Default message
     
     if (userId && teamId !== 'unknown') {
-      const userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+      let userSystemPrompt = null;
+      
+      // For enterprise installs, try to get system prompt from enterprise ID first, then fall back to team IDs
+      if (teamId.startsWith('E')) {
+        // This is an enterprise ID, check enterprise first
+        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+        console.log('Enterprise system prompt for welcome:', userSystemPrompt ? 'Found' : 'Not found');
+        
+        // If not found in enterprise, check known team IDs
+        if (!userSystemPrompt) {
+          const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
+          for (const teamId of knownTeamIds) {
+            const teamPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+            if (teamPrompt) {
+              userSystemPrompt = teamPrompt;
+              console.log(`Found system prompt for welcome in team ${teamId}`);
+              break;
+            }
+          }
+        }
+      } else {
+        // Non-enterprise: use team-specific data
+        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+      }
+      
       if (userSystemPrompt?.welcomeMessage) {
         welcomeMessage = userSystemPrompt.welcomeMessage;
       }
@@ -1170,115 +1215,115 @@ app.event('app_home_opened', async ({ event, client, context }) => {
     }
 
     const homeView = {
-      type: 'home',
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*Welcome to AI Assistant!* 🤖\n\nI\'m your intelligent AI assistant powered by GROK. I can help you with questions, provide information, and assist with various tasks.'
-          }
-        },
-        {
-          type: 'divider'
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*AI Behavior Settings:*\nCustomize how I respond to you'
-          },
-          accessory: {
-            type: 'button',
+        type: 'home',
+        blocks: [
+          {
+            type: 'section',
             text: {
-              type: 'plain_text',
-              text: '⚙️ Configure'
+              type: 'mrkdwn',
+              text: '*Welcome to AI Assistant!* 🤖\n\nI\'m your intelligent AI assistant powered by GROK. I can help you with questions, provide information, and assist with various tasks.'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*AI Behavior Settings:*\nCustomize how I respond to you'
             },
-            action_id: 'configure_system_prompt_button',
-            value: 'configure_prompt'
-          }
-        },
+            accessory: {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '⚙️ Configure'
+              },
+              action_id: 'configure_system_prompt_button',
+              value: 'configure_prompt'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Suggested Prompts:*\nCreate quick-start prompts that appear as buttons in the AI Assistant pane:'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '➕ Add Prompt'
+                },
+                action_id: 'add_suggested_prompt_button',
+                style: 'primary'
+            }
+          ]
+              },
+        {
+          type: 'actions',
+          elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '📋 View Prompts'
+                },
+                action_id: 'view_suggested_prompts_button'
+              }
+            ]
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Key-Phrase Responses:*\nSet up automatic responses that bypass the AI for specific phrases:'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '➕ Add Response'
+                },
+                action_id: 'add_key_phrase_response_button',
+                style: 'primary'
+            }
+          ]
+              },
+        {
+          type: 'actions',
+          elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '📋 View Responses'
+                },
+                action_id: 'view_key_phrase_responses_button'
+              }
+            ]
+          },
         {
           type: 'divider'
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*Suggested Prompts:*\nCreate quick-start prompts that appear as buttons in the AI Assistant pane:'
-          }
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '➕ Add Prompt'
-              },
-              action_id: 'add_suggested_prompt_button',
-              style: 'primary'
-            }
-          ]
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '📋 View Prompts'
-              },
-              action_id: 'view_suggested_prompts_button'
-            }
-          ]
-        },
-        {
-          type: 'divider'
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*Key-Phrase Responses:*\nSet up automatic responses that bypass the AI for specific phrases:'
-          }
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '➕ Add Response'
-              },
-              action_id: 'add_key_phrase_response_button',
-              style: 'primary'
-            }
-          ]
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '📋 View Responses'
-              },
-              action_id: 'view_key_phrase_responses_button'
-            }
-          ]
-        },
-        {
-          type: 'divider'
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
             text: '*Channel Monitoring:*\nMonitor channels and get AI responses based on message content'
           },
           accessory: {
@@ -1289,15 +1334,15 @@ app.event('app_home_opened', async ({ event, client, context }) => {
             },
             action_id: 'add_monitored_channel',
             style: 'primary'
-          }
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
                 text: '⚙️ Manage Monitored Channels'
               },
               action_id: 'manage_monitored_channels'
@@ -1324,9 +1369,9 @@ app.event('app_home_opened', async ({ event, client, context }) => {
             text: `*Jira Integration:* ${jiraStatus}\nConnect your Jira org`
           },
           accessory: {
-            type: 'button',
-            text: {
-              type: 'plain_text',
+                type: 'button',
+                text: {
+                  type: 'plain_text',
               text: jiraButtonText
             },
             action_id: 'setup_jira_button'
@@ -1342,9 +1387,9 @@ app.event('app_home_opened', async ({ event, client, context }) => {
             text: '*Salesforce Integration:*\nConnect your Salesforce org'
           },
           accessory: {
-            type: 'button',
-            text: {
-              type: 'plain_text',
+                type: 'button',
+                text: {
+                  type: 'plain_text',
               text: '🔗 Connect'
             },
             action_id: 'connect_salesforce_button',
@@ -2772,15 +2817,41 @@ app.action(/^delete_response_(.+)$/, async ({ ack, body, client, action }) => {
 
 
 // Configure system prompt button handler
-app.action('configure_system_prompt_button', async ({ ack, body, client }) => {
+app.action('configure_system_prompt_button', async ({ ack, body, client, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    // Use enterprise ID for data storage in enterprise installs to ensure consistency across devices
+    let teamId = context.teamId || body.team?.id || body.user?.team_id || 'unknown';
+    
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for system prompt storage:', teamId);
+    }
+    
     const userId = body.user.id;
     
-    // Get existing system prompt if any
-    const existingPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+    // For enterprise installs, try to get existing system prompt from enterprise ID first, then fall back to team IDs
+    let existingPrompt = null;
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      existingPrompt = await redisService.getUserSystemPrompt(context.enterpriseId, userId);
+      console.log('Enterprise system prompt:', existingPrompt ? 'Found' : 'Not found');
+      
+      // If not found in enterprise, check known team IDs
+      if (!existingPrompt) {
+        const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
+        for (const teamId of knownTeamIds) {
+          const teamPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+          if (teamPrompt) {
+            existingPrompt = teamPrompt;
+            console.log(`Found system prompt in team ${teamId}`);
+            break;
+          }
+        }
+      }
+    } else {
+      existingPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+    }
     
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -3008,11 +3079,18 @@ app.action('configure_system_prompt_button', async ({ ack, body, client }) => {
 });
 
 // Configure system prompt modal submission handler
-app.view('configure_system_prompt', async ({ ack, body, view, client }) => {
+app.view('configure_system_prompt', async ({ ack, body, view, client, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    // Use enterprise ID for data storage in enterprise installs to ensure consistency across devices
+    let teamId = context.teamId || body.team?.id || body.user?.team_id || 'unknown';
+    
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      teamId = context.enterpriseId;
+      console.log('Enterprise install detected - using enterprise ID for system prompt storage:', teamId);
+    }
+    
     const userId = body.user.id;
     const values = view.state.values;
     
@@ -3731,7 +3809,7 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
         text: `❌ Failed to update channel: ${result.error}`
       });
     }
-  } catch (error) {
+      } catch (error) {
     console.error('Edit monitored channel submission error:', error);
   }
 });
