@@ -286,6 +286,75 @@ async function handleSalesforceRequest(message, tokens, userId, conversationHist
       }
     }
     
+    // Check for Contact lookup by phone number
+    if (lowerMessage.includes('lookup contact') || 
+        lowerMessage.includes('find contact') || 
+        lowerMessage.includes('contact with phone') ||
+        lowerMessage.includes('who has phone number') ||
+        lowerMessage.includes('phone number belongs to')) {
+      
+      const phoneNumber = extractPhoneNumber(message);
+      if (phoneNumber) {
+        const result = await lookupContactByPhone(phoneNumber, tokens);
+        if (result) {
+          return result;
+        }
+      } else {
+        return `❌ Please provide a phone number to lookup. Example: "Lookup contact with phone number 555-123-4567"`;
+      }
+    }
+    
+    // Check for Contact lookup by email
+    if (lowerMessage.includes('lookup contact by email') || 
+        lowerMessage.includes('find contact by email') || 
+        lowerMessage.includes('contact with email') ||
+        lowerMessage.includes('who has email')) {
+      
+      const email = extractEmail(message);
+      if (email) {
+        const result = await lookupContactByEmail(email, tokens);
+        if (result) {
+          return result;
+        }
+      } else {
+        return `❌ Please provide an email address to lookup. Example: "Lookup contact by email john@example.com"`;
+      }
+    }
+    
+    // Check for Account lookup by name
+    if (lowerMessage.includes('lookup account') || 
+        lowerMessage.includes('find account') || 
+        lowerMessage.includes('account named') ||
+        lowerMessage.includes('account called')) {
+      
+      const accountName = extractAccountName(message);
+      if (accountName) {
+        const result = await lookupAccountByName(accountName, tokens);
+        if (result) {
+          return result;
+        }
+      } else {
+        return `❌ Please provide an account name to lookup. Example: "Lookup account named Acme Corp"`;
+      }
+    }
+    
+    // Check for Lead lookup by email
+    if (lowerMessage.includes('lookup lead') || 
+        lowerMessage.includes('find lead') || 
+        lowerMessage.includes('lead with email') ||
+        lowerMessage.includes('lead named')) {
+      
+      const email = extractEmail(message) || extractLeadName(message);
+      if (email) {
+        const result = await lookupLeadByEmailOrName(email, tokens);
+        if (result) {
+          return result;
+        }
+      } else {
+        return `❌ Please provide an email or name to lookup. Example: "Lookup lead with email john@example.com"`;
+      }
+    }
+    
     return null; // No Salesforce operation detected
   } catch (error) {
     console.error('Error handling Salesforce request:', error);
@@ -470,6 +539,181 @@ function extractTaskData(message) {
   return taskData;
 }
 
+// Extract phone number from message
+function extractPhoneNumber(message) {
+  // Match various phone number formats
+  const phoneRegex = /(\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})/;
+  const match = message.match(phoneRegex);
+  if (match) {
+    // Return formatted phone number
+    return `(${match[2]}) ${match[3]}-${match[4]}`;
+  }
+  return null;
+}
+
+// Extract email from message
+function extractEmail(message) {
+  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
+  const match = message.match(emailRegex);
+  return match ? match[0] : null;
+}
+
+// Extract account name from message
+function extractAccountName(message) {
+  // Look for patterns like "account named X", "account called X", etc.
+  const patterns = [
+    /account\s+(?:named|called)\s+([A-Za-z0-9\s&.,-]+)/i,
+    /lookup\s+account\s+([A-Za-z0-9\s&.,-]+)/i,
+    /find\s+account\s+([A-Za-z0-9\s&.,-]+)/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
+
+// Extract lead name from message
+function extractLeadName(message) {
+  // Look for patterns like "lead named X", "lead called X", etc.
+  const patterns = [
+    /lead\s+(?:named|called)\s+([A-Za-z0-9\s&.,-]+)/i,
+    /lookup\s+lead\s+([A-Za-z0-9\s&.,-]+)/i,
+    /find\s+lead\s+([A-Za-z0-9\s&.,-]+)/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
+
+// Lookup contact by phone number
+async function lookupContactByPhone(phoneNumber, tokens) {
+  try {
+    const soql = `SELECT Id, Name, Phone, Email, Account.Name FROM Contact WHERE Phone = '${phoneNumber}' LIMIT 5`;
+    const result = await salesforceService.queryRecords(soql, tokens.access_token);
+    
+    if (result.success && result.records.length > 0) {
+      let response = `📞 **Contact Lookup Results for ${phoneNumber}:**\n\n`;
+      
+      result.records.forEach((contact, index) => {
+        response += `**${index + 1}. ${contact.Name}**\n`;
+        response += `   • Phone: ${contact.Phone || 'N/A'}\n`;
+        response += `   • Email: ${contact.Email || 'N/A'}\n`;
+        response += `   • Account: ${contact.Account?.Name || 'N/A'}\n`;
+        response += `   • [View in Salesforce](${salesforceService.baseUrl}/lightning/r/Contact/${contact.Id}/view)\n\n`;
+      });
+      
+      return response;
+    } else {
+      return `❌ No contacts found with phone number ${phoneNumber}`;
+    }
+  } catch (error) {
+    console.error('Error looking up contact by phone:', error);
+    return `❌ Error looking up contact: ${error.message}`;
+  }
+}
+
+// Lookup contact by email
+async function lookupContactByEmail(email, tokens) {
+  try {
+    const soql = `SELECT Id, Name, Phone, Email, Account.Name FROM Contact WHERE Email = '${email}' LIMIT 5`;
+    const result = await salesforceService.queryRecords(soql, tokens.access_token);
+    
+    if (result.success && result.records.length > 0) {
+      let response = `📧 **Contact Lookup Results for ${email}:**\n\n`;
+      
+      result.records.forEach((contact, index) => {
+        response += `**${index + 1}. ${contact.Name}**\n`;
+        response += `   • Phone: ${contact.Phone || 'N/A'}\n`;
+        response += `   • Email: ${contact.Email || 'N/A'}\n`;
+        response += `   • Account: ${contact.Account?.Name || 'N/A'}\n`;
+        response += `   • [View in Salesforce](${salesforceService.baseUrl}/lightning/r/Contact/${contact.Id}/view)\n\n`;
+      });
+      
+      return response;
+    } else {
+      return `❌ No contacts found with email ${email}`;
+    }
+  } catch (error) {
+    console.error('Error looking up contact by email:', error);
+    return `❌ Error looking up contact: ${error.message}`;
+  }
+}
+
+// Lookup account by name
+async function lookupAccountByName(accountName, tokens) {
+  try {
+    const soql = `SELECT Id, Name, Phone, Website, Industry, BillingCity, BillingState FROM Account WHERE Name LIKE '%${accountName}%' LIMIT 5`;
+    const result = await salesforceService.queryRecords(soql, tokens.access_token);
+    
+    if (result.success && result.records.length > 0) {
+      let response = `🏢 **Account Lookup Results for "${accountName}":**\n\n`;
+      
+      result.records.forEach((account, index) => {
+        response += `**${index + 1}. ${account.Name}**\n`;
+        response += `   • Phone: ${account.Phone || 'N/A'}\n`;
+        response += `   • Website: ${account.Website || 'N/A'}\n`;
+        response += `   • Industry: ${account.Industry || 'N/A'}\n`;
+        response += `   • Location: ${account.BillingCity || 'N/A'}${account.BillingState ? `, ${account.BillingState}` : ''}\n`;
+        response += `   • [View in Salesforce](${salesforceService.baseUrl}/lightning/r/Account/${account.Id}/view)\n\n`;
+      });
+      
+      return response;
+    } else {
+      return `❌ No accounts found with name containing "${accountName}"`;
+    }
+  } catch (error) {
+    console.error('Error looking up account:', error);
+    return `❌ Error looking up account: ${error.message}`;
+  }
+}
+
+// Lookup lead by email or name
+async function lookupLeadByEmailOrName(searchTerm, tokens) {
+  try {
+    // Check if it's an email format
+    const isEmail = searchTerm.includes('@');
+    let soql;
+    
+    if (isEmail) {
+      soql = `SELECT Id, Name, Email, Phone, Company, Status, LeadSource FROM Lead WHERE Email = '${searchTerm}' LIMIT 5`;
+    } else {
+      soql = `SELECT Id, Name, Email, Phone, Company, Status, LeadSource FROM Lead WHERE Name LIKE '%${searchTerm}%' LIMIT 5`;
+    }
+    
+    const result = await salesforceService.queryRecords(soql, tokens.access_token);
+    
+    if (result.success && result.records.length > 0) {
+      let response = `🎯 **Lead Lookup Results for "${searchTerm}":**\n\n`;
+      
+      result.records.forEach((lead, index) => {
+        response += `**${index + 1}. ${lead.Name}**\n`;
+        response += `   • Email: ${lead.Email || 'N/A'}\n`;
+        response += `   • Phone: ${lead.Phone || 'N/A'}\n`;
+        response += `   • Company: ${lead.Company || 'N/A'}\n`;
+        response += `   • Status: ${lead.Status || 'N/A'}\n`;
+        response += `   • Source: ${lead.LeadSource || 'N/A'}\n`;
+        response += `   • [View in Salesforce](${salesforceService.baseUrl}/lightning/r/Lead/${lead.Id}/view)\n\n`;
+      });
+      
+      return response;
+    } else {
+      return `❌ No leads found for "${searchTerm}"`;
+    }
+  } catch (error) {
+    console.error('Error looking up lead:', error);
+    return `❌ Error looking up lead: ${error.message}`;
+  }
+}
+
 // GROK API integration function with conversation context and integration support
 async function callGrokAPI(message, userId, conversationHistory = [], teamId = null) {
   try {
@@ -539,7 +783,7 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       // For enterprise installs, try to get system prompt from enterprise ID first, then fall back to team IDs
       if (teamId.startsWith('E')) {
         // This is an enterprise ID, check enterprise first
-        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+      userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
         console.log('Enterprise system prompt for chat:', userSystemPrompt ? 'Found' : 'Not found');
         
         // If not found in enterprise, check known team IDs
