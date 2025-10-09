@@ -125,8 +125,20 @@ function validateBlockKitStructure(blocks) {
 }
 
 // Helper function to send response (handles both plain text and Block Kit)
-async function sendKeyPhraseResponse(client, channel, responseText, threadTs = null) {
+async function sendKeyPhraseResponse(client, channel, responseText, threadTs = null, thinkingDelay = 0) {
   try {
+    // Show thinking indicator if delay is specified
+    let thinkingMessage = null;
+    if (thinkingDelay > 0) {
+      thinkingMessage = await client.chat.postMessage({
+        channel: channel,
+        text: "Thinking... 🤔",
+        thread_ts: threadTs
+      });
+      
+      // Wait for the specified delay
+      await new Promise(resolve => setTimeout(resolve, thinkingDelay * 1000));
+    }
     // Try to parse as Block Kit JSON
     try {
       const parsed = JSON.parse(responseText);
@@ -136,6 +148,14 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
         const validation = validateBlockKitStructure(parsed);
         
         if (validation.valid) {
+          // Delete thinking message if it exists
+          if (thinkingMessage) {
+            await client.chat.delete({
+              channel: channel,
+              ts: thinkingMessage.ts
+            });
+          }
+          
           // It's valid Block Kit JSON
           await client.chat.postMessage({
             channel: channel,
@@ -145,6 +165,14 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
           });
           return;
         } else {
+          // Delete thinking message if it exists
+          if (thinkingMessage) {
+            await client.chat.delete({
+              channel: channel,
+              ts: thinkingMessage.ts
+            });
+          }
+          
           // Invalid Block Kit structure, send error message
           await client.chat.postMessage({
             channel: channel,
@@ -165,6 +193,14 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
         const validation = validateBlockKitStructure(parsed.blocks);
         
         if (validation.valid) {
+          // Delete thinking message if it exists
+          if (thinkingMessage) {
+            await client.chat.delete({
+              channel: channel,
+              ts: thinkingMessage.ts
+            });
+          }
+          
           await client.chat.postMessage({
             channel: channel,
             text: parsed.text || 'Response',
@@ -173,6 +209,14 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
           });
           return;
         } else {
+          // Delete thinking message if it exists
+          if (thinkingMessage) {
+            await client.chat.delete({
+              channel: channel,
+              ts: thinkingMessage.ts
+            });
+          }
+          
           await client.chat.postMessage({
             channel: channel,
             text: `❌ Invalid Block Kit structure: ${validation.error}\n\nFalling back to plain text response.`,
@@ -191,6 +235,14 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
       // Not valid JSON, treat as plain text
     }
     
+    // Delete thinking message if it exists
+    if (thinkingMessage) {
+      await client.chat.delete({
+        channel: channel,
+        ts: thinkingMessage.ts
+      });
+    }
+    
     // Send as plain text
     await client.chat.postMessage({
       channel: channel,
@@ -199,6 +251,15 @@ async function sendKeyPhraseResponse(client, channel, responseText, threadTs = n
     });
   } catch (error) {
     console.error('Error sending key-phrase response:', error);
+    
+    // Delete thinking message if it exists
+    if (thinkingMessage) {
+      await client.chat.delete({
+        channel: channel,
+        ts: thinkingMessage.ts
+      });
+    }
+    
     // Fallback to plain text
     await client.chat.postMessage({
       channel: channel,
@@ -1148,7 +1209,7 @@ app.event('message', async ({ event, say, client, context }) => {
         const keyPhraseResponse = await checkKeyPhraseResponse(event.text, teamId, context);
         if (keyPhraseResponse) {
           console.log('Key-phrase response matched:', keyPhraseResponse.triggerPhrase);
-          await sendKeyPhraseResponse(client, event.channel, keyPhraseResponse.responseText, event.thread_ts);
+          await sendKeyPhraseResponse(client, event.channel, keyPhraseResponse.responseText, event.thread_ts, keyPhraseResponse.thinkingDelay || 0);
           return; // Skip AI processing
         }
       }
@@ -1390,7 +1451,7 @@ app.event('message', async ({ event, say, client, context }) => {
         const keyPhraseResponse = await checkKeyPhraseResponse(event.text, teamId, context);
         if (keyPhraseResponse) {
           console.log('Key-phrase response matched:', keyPhraseResponse.triggerPhrase);
-          await sendKeyPhraseResponse(client, event.channel, keyPhraseResponse.responseText);
+          await sendKeyPhraseResponse(client, event.channel, keyPhraseResponse.responseText, null, keyPhraseResponse.thinkingDelay || 0);
           return; // Skip AI processing
         }
       }
@@ -2640,6 +2701,30 @@ app.action('add_key_phrase_response_button', async ({ ack, body, client }) => {
             }
           },
           {
+            type: 'input',
+            block_id: 'thinking_delay',
+            element: {
+              type: 'number_input',
+              action_id: 'thinking_delay',
+              is_decimal_allowed: false,
+              min_value: '0',
+              max_value: '10',
+              placeholder: {
+                type: 'plain_text',
+                text: '0'
+              }
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Thinking Delay (seconds)'
+            },
+            optional: true,
+            hint: {
+              type: 'plain_text',
+              text: 'How long to show "Thinking... 🤔" before sending the response (0-10 seconds)'
+            }
+          },
+          {
             type: 'context',
             elements: [
               {
@@ -2672,6 +2757,7 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
     
     const triggerPhrase = values.trigger_phrase.trigger_text.value;
     const responseText = values.response_text.response_text.value;
+    const thinkingDelay = values.thinking_delay?.thinking_delay?.value || '0';
     
     if (!triggerPhrase || !responseText) {
       await client.chat.postMessage({
@@ -2684,6 +2770,7 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
     const responseData = {
       triggerPhrase: triggerPhrase.trim(),
       responseText: responseText.trim(),
+      thinkingDelay: parseInt(thinkingDelay) || 0,
       enabled: true
     };
     
@@ -2993,6 +3080,31 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action, context }
               type: 'plain_text',
               text: 'Response (Plain Text or Block Kit JSON)'
             }
+          },
+          {
+            type: 'input',
+            block_id: 'thinking_delay',
+            element: {
+              type: 'number_input',
+              action_id: 'thinking_delay',
+              is_decimal_allowed: false,
+              min_value: '0',
+              max_value: '10',
+              placeholder: {
+                type: 'plain_text',
+                text: '0'
+              },
+              initial_value: (response.thinkingDelay || 0).toString()
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Thinking Delay (seconds)'
+            },
+            optional: true,
+            hint: {
+              type: 'plain_text',
+              text: 'How long to show "Thinking... 🤔" before sending the response (0-10 seconds)'
+            }
           }
         ]
       }
@@ -3019,6 +3131,7 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
     
     const triggerPhrase = values.trigger_phrase.trigger_text.value;
     const responseText = values.response_text.response_text.value;
+    const thinkingDelay = values.thinking_delay?.thinking_delay?.value || '0';
     
     if (!triggerPhrase || !responseText) {
       await client.chat.postMessage({
@@ -3030,7 +3143,8 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
     
     const updates = {
       triggerPhrase: triggerPhrase.trim(),
-      responseText: responseText.trim()
+      responseText: responseText.trim(),
+      thinkingDelay: parseInt(thinkingDelay) || 0
     };
     
     const success = await redisService.updateKeyPhraseResponse(teamId, responseId, updates);
