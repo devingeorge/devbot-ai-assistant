@@ -1153,10 +1153,11 @@ app.event('message', async ({ event, say, client, context }) => {
         }
       }
       
-      // Show typing indicator
-      await client.conversations.mark({
+      // Show visible thinking indicator
+      const thinkingMessage = await client.chat.postMessage({
         channel: event.channel,
-        ts: event.ts
+        text: "Thinking... 🤔",
+        thread_ts: event.thread_ts
       });
 
       // Get conversation history for AI Assistant thread
@@ -1166,6 +1167,12 @@ app.event('message', async ({ event, say, client, context }) => {
       // Get AI response from GROK with conversation context
       console.log('Context object in app.message:', context);
       const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, context.teamId);
+      
+      // Delete the thinking message
+      await client.chat.delete({
+        channel: event.channel,
+        ts: thinkingMessage.ts
+      });
       
       // Reply with the AI response in the same thread
       await say({
@@ -1289,8 +1296,21 @@ app.event('message', async ({ event, say, client, context }) => {
           content: userText
         });
 
+        // Show visible thinking indicator in thread
+        const thinkingMessage = await client.chat.postMessage({
+          channel: channel,
+          text: "Thinking... 🤔",
+          thread_ts: event.ts
+        });
+
         // Get AI response with conversation context
         const aiResponse = await callGrokAPI(userText + '\n\n' + systemPrompt, user, conversationHistory, team);
+
+        // Delete the thinking message
+        await client.chat.delete({
+          channel: channel,
+          ts: thinkingMessage.ts
+        });
 
         // Respond in thread to keep main channel clean
         await client.chat.postMessage({
@@ -1375,10 +1395,10 @@ app.event('message', async ({ event, say, client, context }) => {
         }
       }
       
-      // Show typing indicator
-      await client.conversations.mark({
+      // Show visible thinking indicator
+      const thinkingMessage = await client.chat.postMessage({
         channel: event.channel,
-        ts: event.ts
+        text: "Thinking... 🤔"
       });
 
       // Get conversation history for DMs (use channel as thread)
@@ -1403,6 +1423,12 @@ app.event('message', async ({ event, say, client, context }) => {
 
       // Get AI response from GROK with conversation context
       const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, context.teamId);
+      
+      // Delete the thinking message
+      await client.chat.delete({
+        channel: event.channel,
+        ts: thinkingMessage.ts
+      });
       
       // Reply with the AI response
       await say(aiResponse);
