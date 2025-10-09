@@ -2260,13 +2260,30 @@ async function updateViewPromptsModal(client, body, teamId) {
 }
 
 // Edit suggested prompt action handler
-app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action }) => {
+app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    // Find which team ID this prompt is stored under
     const promptId = action.value;
-    const prompt = await redisService.getSuggestedPrompt(teamId, promptId);
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    let prompt = null;
+    
+    // For enterprise installs, search all known team IDs to find where the prompt is stored
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
+      for (const tid of knownTeamIds) {
+        const foundPrompt = await redisService.getSuggestedPrompt(tid, promptId);
+        if (foundPrompt) {
+          prompt = foundPrompt;
+          teamId = tid; // Use the team ID where we actually found it
+          console.log(`Found prompt ${promptId} in team ${tid}`);
+          break;
+        }
+      }
+    } else {
+      prompt = await redisService.getSuggestedPrompt(teamId, promptId);
+    }
     
     if (!prompt) {
       await client.chat.postMessage({
@@ -2424,13 +2441,30 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client, context }) =
 });
 
 // Toggle suggested prompt enabled/disabled action handler
-app.action(/^toggle_prompt_(.+)$/, async ({ ack, body, client, action }) => {
+app.action(/^toggle_prompt_(.+)$/, async ({ ack, body, client, action, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    // Find which team ID this prompt is stored under
     const promptId = action.value;
-    const prompt = await redisService.getSuggestedPrompt(teamId, promptId);
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    let prompt = null;
+    
+    // For enterprise installs, search all known team IDs to find where the prompt is stored
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
+      for (const tid of knownTeamIds) {
+        const foundPrompt = await redisService.getSuggestedPrompt(tid, promptId);
+        if (foundPrompt) {
+          prompt = foundPrompt;
+          teamId = tid; // Use the team ID where we actually found it
+          console.log(`Found prompt ${promptId} in team ${tid}`);
+          break;
+        }
+      }
+    } else {
+      prompt = await redisService.getSuggestedPrompt(teamId, promptId);
+    }
     
     if (!prompt) {
       await client.chat.postMessage({
@@ -2462,12 +2496,37 @@ app.action(/^toggle_prompt_(.+)$/, async ({ ack, body, client, action }) => {
 });
 
 // Delete suggested prompt action handler
-app.action(/^delete_prompt_(.+)$/, async ({ ack, body, client, action }) => {
+app.action(/^delete_prompt_(.+)$/, async ({ ack, body, client, action, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    // Find which team ID this prompt is stored under
     const promptId = action.value;
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    let foundTeamId = null;
+    
+    // For enterprise installs, search all known team IDs to find where the prompt is stored
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
+      for (const tid of knownTeamIds) {
+        const foundPrompt = await redisService.getSuggestedPrompt(tid, promptId);
+        if (foundPrompt) {
+          foundTeamId = tid; // Use the team ID where we actually found it
+          console.log(`Found prompt ${promptId} to delete in team ${tid}`);
+          break;
+        }
+      }
+      
+      if (!foundTeamId) {
+        await client.chat.postMessage({
+          channel: body.user.id,
+          text: '❌ Prompt not found. It may have already been deleted.'
+        });
+        return;
+      }
+      
+      teamId = foundTeamId;
+    }
     
     const success = await redisService.deleteSuggestedPrompt(teamId, promptId);
     
@@ -2813,13 +2872,30 @@ app.action('view_key_phrase_responses_button', async ({ ack, body, client, conte
 });
 
 // Edit key-phrase response action handler
-app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action }) => {
+app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    // Find which team ID this response is stored under
     const responseId = action.value;
-    const response = await redisService.getKeyPhraseResponse(teamId, responseId);
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    let response = null;
+    
+    // For enterprise installs, search all known team IDs to find where the response is stored
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
+      for (const tid of knownTeamIds) {
+        const foundResponse = await redisService.getKeyPhraseResponse(tid, responseId);
+        if (foundResponse) {
+          response = foundResponse;
+          teamId = tid; // Use the team ID where we actually found it
+          console.log(`Found response ${responseId} in team ${tid}`);
+          break;
+        }
+      }
+    } else {
+      response = await redisService.getKeyPhraseResponse(teamId, responseId);
+    }
     
     if (!response) {
       await client.chat.postMessage({
@@ -2978,13 +3054,30 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
 });
 
 // Toggle key-phrase response enabled/disabled action handler
-app.action(/^toggle_response_(.+)$/, async ({ ack, body, client, action }) => {
+app.action(/^toggle_response_(.+)$/, async ({ ack, body, client, action, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    // Find which team ID this response is stored under
     const responseId = action.value;
-    const response = await redisService.getKeyPhraseResponse(teamId, responseId);
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    let response = null;
+    
+    // For enterprise installs, search all known team IDs to find where the response is stored
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
+      for (const tid of knownTeamIds) {
+        const foundResponse = await redisService.getKeyPhraseResponse(tid, responseId);
+        if (foundResponse) {
+          response = foundResponse;
+          teamId = tid; // Use the team ID where we actually found it
+          console.log(`Found response ${responseId} in team ${tid}`);
+          break;
+        }
+      }
+    } else {
+      response = await redisService.getKeyPhraseResponse(teamId, responseId);
+    }
     
     if (!response) {
       await client.chat.postMessage({
@@ -3021,12 +3114,37 @@ app.action(/^toggle_response_(.+)$/, async ({ ack, body, client, action }) => {
 });
 
 // Delete key-phrase response action handler
-app.action(/^delete_response_(.+)$/, async ({ ack, body, client, action }) => {
+app.action(/^delete_response_(.+)$/, async ({ ack, body, client, action, context }) => {
   await ack();
   
   try {
-    const teamId = body.team?.id || body.user?.team_id || 'unknown';
+    // Find which team ID this response is stored under
     const responseId = action.value;
+    let teamId = context.teamId || body.team?.id || 'unknown';
+    let foundTeamId = null;
+    
+    // For enterprise installs, search all known team IDs to find where the response is stored
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
+      for (const tid of knownTeamIds) {
+        const foundResponse = await redisService.getKeyPhraseResponse(tid, responseId);
+        if (foundResponse) {
+          foundTeamId = tid; // Use the team ID where we actually found it
+          console.log(`Found response ${responseId} to delete in team ${tid}`);
+          break;
+        }
+      }
+      
+      if (!foundTeamId) {
+        await client.chat.postMessage({
+          channel: body.user.id,
+          text: '❌ Response not found. It may have already been deleted.'
+        });
+        return;
+      }
+      
+      teamId = foundTeamId;
+    }
     
     const success = await redisService.deleteKeyPhraseResponse(teamId, responseId);
     
