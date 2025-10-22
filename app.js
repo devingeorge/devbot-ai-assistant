@@ -846,6 +846,15 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
         // This is an enterprise ID, check enterprise first
         userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
         console.log('Enterprise system prompt for chat:', userSystemPrompt ? 'Found' : 'Not found');
+        if (userSystemPrompt) {
+          console.log('Retrieved system prompt data:', {
+            tone: userSystemPrompt.tone,
+            businessType: userSystemPrompt.businessType,
+            companyName: userSystemPrompt.companyName,
+            additionalDirections: userSystemPrompt.additionalDirections,
+            welcomeMessage: userSystemPrompt.welcomeMessage
+          });
+        }
         
         // If not found in enterprise, check known team IDs
         if (!userSystemPrompt) {
@@ -855,6 +864,13 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
             if (teamPrompt) {
               userSystemPrompt = teamPrompt;
               console.log(`Found system prompt for chat in team ${teamId}`);
+              console.log('Retrieved team system prompt data:', {
+                tone: userSystemPrompt.tone,
+                businessType: userSystemPrompt.businessType,
+                companyName: userSystemPrompt.companyName,
+                additionalDirections: userSystemPrompt.additionalDirections,
+                welcomeMessage: userSystemPrompt.welcomeMessage
+              });
               break;
             }
           }
@@ -862,6 +878,15 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       } else {
         // Non-enterprise: use team-specific data
         userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+        if (userSystemPrompt) {
+          console.log('Retrieved non-enterprise system prompt data:', {
+            tone: userSystemPrompt.tone,
+            businessType: userSystemPrompt.businessType,
+            companyName: userSystemPrompt.companyName,
+            additionalDirections: userSystemPrompt.additionalDirections,
+            welcomeMessage: userSystemPrompt.welcomeMessage
+          });
+        }
       }
     }
     
@@ -3612,6 +3637,16 @@ app.view('configure_system_prompt', async ({ ack, body, view, client, context })
       additionalDirections: additionalDirections,
       welcomeMessage: welcomeMessage
     };
+    
+    console.log('Saving system prompt data:', {
+      teamId: teamId,
+      userId: userId,
+      tone: tone,
+      businessType: businessType,
+      companyName: companyName,
+      additionalDirections: additionalDirections,
+      welcomeMessage: welcomeMessage
+    });
     
     const success = await redisService.saveUserSystemPrompt(teamId, userId, promptData);
     
