@@ -838,13 +838,13 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       }
     }
     
-    // Get user-specific system prompt configuration - aggregate from all team IDs for enterprise installs
+    // Get user-specific system prompt configuration - use data aggregation pattern like other modals
     let userSystemPrompt = null;
     if (teamId && userId) {
-      // For enterprise installs, try to get system prompt from enterprise ID first, then fall back to team IDs
+      // Use data aggregation pattern like other modals (suggested prompts, key-phrase responses)
       if (teamId.startsWith('E')) {
         // This is an enterprise ID, check enterprise first
-      userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
         console.log('Enterprise system prompt for chat:', userSystemPrompt ? 'Found' : 'Not found');
         
         // If not found in enterprise, check known team IDs
@@ -1128,7 +1128,7 @@ app.event('assistant_thread_started', async ({ event, client, context }) => {
     if (userId && teamId !== 'unknown') {
       let userSystemPrompt = null;
       
-      // For enterprise installs, try to get system prompt from enterprise ID first, then fall back to team IDs
+      // Use data aggregation pattern like other modals (suggested prompts, key-phrase responses)
       if (teamId.startsWith('E')) {
         // This is an enterprise ID, check enterprise first
         userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
@@ -3323,19 +3323,12 @@ app.action('configure_system_prompt_button', async ({ ack, body, client, context
   await ack();
   
   try {
-    // Use enterprise ID for data storage in enterprise installs to ensure consistency across devices
-    let teamId = context.teamId || body.team?.id || body.user?.team_id || 'unknown';
-    
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      teamId = context.enterpriseId;
-      console.log('Enterprise install detected - using enterprise ID for system prompt storage:', teamId);
-    }
-    
     const userId = body.user.id;
     
-    // For enterprise installs, try to get existing system prompt from enterprise ID first, then fall back to team IDs
+    // Use data aggregation pattern like other modals (suggested prompts, key-phrase responses)
     let existingPrompt = null;
-    if (context.isEnterpriseInstall && context.enterpriseId) {
+    if (context?.isEnterpriseInstall && context?.enterpriseId) {
+      // Try enterprise ID first
       existingPrompt = await redisService.getUserSystemPrompt(context.enterpriseId, userId);
       console.log('Enterprise system prompt:', existingPrompt ? 'Found' : 'Not found');
       
@@ -3352,6 +3345,8 @@ app.action('configure_system_prompt_button', async ({ ack, body, client, context
         }
       }
     } else {
+      // Non-enterprise: use team-specific data
+      const teamId = context.teamId || body.team?.id || body.user?.team_id || 'unknown';
       existingPrompt = await redisService.getUserSystemPrompt(teamId, userId);
     }
     
@@ -3585,15 +3580,15 @@ app.view('configure_system_prompt', async ({ ack, body, view, client, context })
   await ack();
   
   try {
-    // Use enterprise ID for data storage in enterprise installs to ensure consistency across devices
+    const userId = body.user.id;
+    
+    // Use consistent team ID resolution like other modals
     let teamId = context.teamId || body.team?.id || body.user?.team_id || 'unknown';
     
     if (context.isEnterpriseInstall && context.enterpriseId) {
       teamId = context.enterpriseId;
       console.log('Enterprise install detected - using enterprise ID for system prompt storage:', teamId);
     }
-    
-    const userId = body.user.id;
     const values = view.state.values;
     
     const tone = values.tone.tone_select.selected_option?.value;
