@@ -859,11 +859,11 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
         // If not found in enterprise, check known team IDs
         if (!userSystemPrompt) {
           const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-          for (const teamId of knownTeamIds) {
-            const teamPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+          for (const knownTeamId of knownTeamIds) {
+            const teamPrompt = await redisService.getUserSystemPrompt(knownTeamId, userId);
             if (teamPrompt) {
               userSystemPrompt = teamPrompt;
-              console.log(`Found system prompt for chat in team ${teamId}`);
+              console.log(`Found system prompt for chat in team ${knownTeamId}`);
               console.log('Retrieved team system prompt data:', {
                 tone: userSystemPrompt.tone,
                 businessType: userSystemPrompt.businessType,
@@ -1162,11 +1162,11 @@ app.event('assistant_thread_started', async ({ event, client, context }) => {
         // If not found in enterprise, check known team IDs
         if (!userSystemPrompt) {
           const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-          for (const teamId of knownTeamIds) {
-            const teamPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+          for (const knownTeamId of knownTeamIds) {
+            const teamPrompt = await redisService.getUserSystemPrompt(knownTeamId, userId);
             if (teamPrompt) {
               userSystemPrompt = teamPrompt;
-              console.log(`Found system prompt for welcome in team ${teamId}`);
+              console.log(`Found system prompt for welcome in team ${knownTeamId}`);
               break;
             }
           }
@@ -3360,11 +3360,11 @@ app.action('configure_system_prompt_button', async ({ ack, body, client, context
       // If not found in enterprise, check known team IDs
       if (!existingPrompt) {
         const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-        for (const teamId of knownTeamIds) {
-          const teamPrompt = await redisService.getUserSystemPrompt(teamId, userId);
+        for (const knownTeamId of knownTeamIds) {
+          const teamPrompt = await redisService.getUserSystemPrompt(knownTeamId, userId);
           if (teamPrompt) {
             existingPrompt = teamPrompt;
-            console.log(`Found system prompt in team ${teamId}`);
+            console.log(`Found system prompt in team ${knownTeamId}`);
             break;
           }
         }
