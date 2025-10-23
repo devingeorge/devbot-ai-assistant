@@ -981,7 +981,7 @@ async function getConversationHistory(client, channelId, threadTs) {
 }
 
 // Listen to messages that mention the bot
-app.event('app_mention', async ({ event, say, client }) => {
+app.event('app_mention', async ({ event, say, client, context }) => {
   try {
     // Extract the message text without the mention
     const messageText = event.text.replace(/<@[^>]+>/g, '').trim();
@@ -1009,7 +1009,8 @@ app.event('app_mention', async ({ event, say, client }) => {
     }
 
     // Get AI response from GROK with conversation context
-    const aiResponse = await callGrokAPI(messageText, event.user, conversationHistory, event.team);
+    const teamIdForAPI = context.isEnterpriseInstall && context.enterpriseId ? context.enterpriseId : event.team;
+    const aiResponse = await callGrokAPI(messageText, event.user, conversationHistory, teamIdForAPI);
     
     // Reply with the AI response in the same thread
     await say({
@@ -1034,7 +1035,7 @@ app.event('app_mention', async ({ event, say, client }) => {
 });
 
 // Slash command handler
-app.command('/ai', async ({ command, ack, say, respond }) => {
+app.command('/ai', async ({ command, ack, say, respond, context }) => {
   await ack();
 
   try {
@@ -1049,7 +1050,8 @@ app.command('/ai', async ({ command, ack, say, respond }) => {
     await say('Thinking... 🤔');
 
     // Get AI response from GROK
-    const aiResponse = await callGrokAPI(query, command.user_id, [], command.team_id);
+    const teamIdForAPI = context.isEnterpriseInstall && context.enterpriseId ? context.enterpriseId : command.team_id;
+    const aiResponse = await callGrokAPI(query, command.user_id, [], teamIdForAPI);
     
     // Reply with the AI response
     await respond({
@@ -1252,7 +1254,8 @@ app.event('message', async ({ event, say, client, context }) => {
 
       // Get AI response from GROK with conversation context
       console.log('Context object in app.message:', context);
-      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, context.teamId);
+      const teamIdForAPI = context.isEnterpriseInstall && context.enterpriseId ? context.enterpriseId : context.teamId;
+      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, teamIdForAPI);
       
       // Delete the thinking message
       await client.chat.delete({
@@ -1390,7 +1393,8 @@ app.event('message', async ({ event, say, client, context }) => {
         });
 
         // Get AI response with conversation context
-        const aiResponse = await callGrokAPI(userText + '\n\n' + systemPrompt, user, conversationHistory, team);
+        const teamIdForAPI = context.isEnterpriseInstall && context.enterpriseId ? context.enterpriseId : team;
+        const aiResponse = await callGrokAPI(userText + '\n\n' + systemPrompt, user, conversationHistory, teamIdForAPI);
 
         // Delete the thinking message
         await client.chat.delete({
@@ -1508,7 +1512,8 @@ app.event('message', async ({ event, say, client, context }) => {
       console.log('DM conversation history:', conversationHistory);
 
       // Get AI response from GROK with conversation context
-      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, context.teamId);
+      const teamIdForAPI = context.isEnterpriseInstall && context.enterpriseId ? context.enterpriseId : context.teamId;
+      const aiResponse = await callGrokAPI(event.text, event.user, conversationHistory, teamIdForAPI);
       
       // Delete the thinking message
       await client.chat.delete({
