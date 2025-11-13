@@ -18,6 +18,20 @@ services:
       sync: false
     - key: SALESFORCE_CLIENT_SECRET
       sync: false
+    - key: SLACK_CLIENT_ID
+      sync: false
+    - key: SLACK_CLIENT_SECRET
+      sync: false
+    - key: SLACK_STATE_SECRET
+      sync: false
+    - key: SLACK_BOT_SCOPES
+      sync: false
+    - key: LEGACY_TEAM_IDS
+      sync: false
+    - key: LEGACY_MIGRATION_TARGET_IDS
+      sync: false
+    - key: CLEAR_DATA_ON_UNINSTALL
+      sync: false
     - key: PORT
       value: 10000
 
