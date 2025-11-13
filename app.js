@@ -35,6 +35,34 @@ function cloneWithout(obj, fields = []) {
   return copy;
 }
 
+// Resolve which storage scope (team or enterprise) holds credentials for an integration.
+// Priority: teamId first (workspace-scoped), then enterpriseId (org-scoped).
+async function resolveIntegrationScope(integrationType, context) {
+  try {
+    const candidates = [];
+    if (context?.teamId) candidates.push(context.teamId);
+    if (context?.enterpriseId) candidates.push(context.enterpriseId);
+    
+    for (const id of candidates) {
+      try {
+        const types = await redisService.listIntegrations(id);
+        if (Array.isArray(types) && types.includes(integrationType)) {
+          console.log('Resolved integration scope:', { integrationType, storageId: id });
+          return id;
+        }
+      } catch (e) {
+        console.warn('Error checking integrations for scope:', { id, error: e.message });
+      }
+    }
+    
+    console.log('No integration scope resolved for integration:', integrationType);
+    return null;
+  } catch (error) {
+    console.error('resolveIntegrationScope error:', error);
+    return null;
+  }
+}
+
 function parseScopes(scopeString = '') {
   return scopeString.split(',').map((s) => s.trim()).filter(Boolean);
 }
@@ -908,11 +936,13 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
     console.log('Calling GROK API with message:', message);
     console.log('XAI_API_KEY available:', !!process.env.XAI_API_KEY);
     
-    // Get available integrations for this team
+    // Get available integrations for this team (informational)
     let availableIntegrations = [];
     if (teamId) {
       availableIntegrations = await redisService.listIntegrations(teamId);
     }
+    // Resolve actual scope to use for integrations (team → enterprise)
+    const jiraIntegrationScopeId = await resolveIntegrationScope('jira', context);
     
     // Check if this is a Jira ticket creation request
     const isJiraTicketRequest = message.toLowerCase().includes('create') && 
@@ -922,10 +952,11 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
       message: message,
       isJiraTicketRequest: isJiraTicketRequest,
       availableIntegrations: availableIntegrations,
-      teamId: teamId
+      teamId: teamId,
+      resolvedScopeId: jiraIntegrationScopeId
     });
     
-    if (isJiraTicketRequest && availableIntegrations.includes('jira')) {
+    if (isJiraTicketRequest && jiraIntegrationScopeId) {
       console.log('Detected Jira ticket creation request');
       
       // Extract ticket details from the message
@@ -937,7 +968,7 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
           summary: ticketSummary,
           description: `Ticket created via Slack AI Assistant\n\nOriginal request: ${message}`,
           issueType: 'Task'
-        }, teamId);
+        }, jiraIntegrationScopeId);
         
         if (result.success) {
           return `✅ Created Jira ticket ${result.ticketKey}: ${result.message}\n\n🔗 ${result.ticketUrl}`;
