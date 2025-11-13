@@ -31,9 +31,12 @@ function cloneWithout(obj, fields = []) {
   return copy;
 }
 
-// Initialize your app with your bot token and signing secret
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
+function parseScopes(scopeString = '') {
+  return scopeString.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+// Initialize Slack app - dual mode (OAuth or single-token)
+const slackAppOptions = {
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: false,
   port: process.env.PORT || 3000,
@@ -42,7 +45,31 @@ const app = new App({
     fetchInstallation: redisService.getInstallation.bind(redisService),
     deleteInstallation: redisService.deleteInstallation.bind(redisService),
   }
-});
+};
+
+const hasOAuth =
+  !!process.env.SLACK_CLIENT_ID &&
+  !!process.env.SLACK_CLIENT_SECRET &&
+  !!process.env.SLACK_STATE_SECRET;
+
+if (hasOAuth) {
+  slackAppOptions.clientId = process.env.SLACK_CLIENT_ID;
+  slackAppOptions.clientSecret = process.env.SLACK_CLIENT_SECRET;
+  slackAppOptions.stateSecret = process.env.SLACK_STATE_SECRET;
+  const botScopes = parseScopes(process.env.SLACK_BOT_SCOPES || 'app_mentions:read,assistant:write,chat:write,commands,im:history,channels:history,users:read,team:read');
+  const userScopes = parseScopes(process.env.SLACK_USER_SCOPES || '');
+  if (botScopes.length > 0) slackAppOptions.scopes = botScopes;
+  if (userScopes.length > 0) slackAppOptions.userScopes = userScopes;
+  console.log('Initializing Slack app in OAuth mode');
+} else {
+  if (!process.env.SLACK_BOT_TOKEN) {
+    throw new Error('Missing SLACK_BOT_TOKEN (single-token mode) or Slack OAuth envs (clientId/clientSecret/stateSecret).');
+  }
+  slackAppOptions.token = process.env.SLACK_BOT_TOKEN;
+  console.log('Initializing Slack app in single-token mode');
+}
+
+const app = new App(slackAppOptions);
 
 async function migrateKeyPhraseResponsesIfNeeded(targetTeamId) {
   if (!LEGACY_TEAM_IDS.length) return false;
