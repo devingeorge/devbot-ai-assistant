@@ -1422,6 +1422,13 @@ app.event('message', async ({ event, say, client, context }) => {
         const user = event.user;
         const userText = String(event.text || '').slice(0, 4000);
 
+        // Attempt to join the channel to ensure the bot can read/post (public channels). Ignore failures.
+        try {
+          await client.conversations.join({ channel });
+        } catch (joinErr) {
+          console.log('Join attempt (channel monitoring) skipped/failed:', joinErr.data?.error || joinErr.message);
+        }
+
         console.log('Processing message in channel:', {
           team,
           channel,
@@ -4242,6 +4249,18 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
         text: '❌ Please select both a channel and response type'
       });
       return;
+    }
+
+    // Try to ensure the bot is a member of the channel (public channels). Ignore errors for private channels.
+    try {
+      await client.conversations.join({ channel: channelId });
+      console.log('Joined channel for monitoring (if not already a member):', { teamId, channelId });
+    } catch (joinError) {
+      console.log('Bot could not join channel (may be private or already a member):', {
+        channelId,
+        error: joinError.data?.error || joinError.message
+      });
+      // Continue; auto-responses require the bot to be a member. The user can invite the bot to private channels.
     }
 
     // Get channel info to get the name
