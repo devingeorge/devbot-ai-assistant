@@ -4129,8 +4129,23 @@ app.action('manage_monitored_channels', async ({ ack, body, client, context }) =
       console.warn('Manage monitored channels called with unknown teamId; aborting to avoid enterprise-scoped writes.');
       return;
     }
-    const channels = await channelMonitoring.getMonitoredChannels(teamId);
-    console.log('Found monitored channels:', channels.length);
+    let channels = await channelMonitoring.getMonitoredChannels(teamId);
+
+    // Also include any legacy enterprise-scoped monitors for visibility on enterprise installs
+    if (context.isEnterpriseInstall && context.enterpriseId) {
+      try {
+        const enterpriseChannels = await channelMonitoring.getMonitoredChannels(context.enterpriseId);
+        if (Array.isArray(enterpriseChannels) && enterpriseChannels.length) {
+          const merged = new Map();
+          for (const ch of channels) merged.set(ch.channelId, ch);
+          for (const ch of enterpriseChannels) if (!merged.has(ch.channelId)) merged.set(ch.channelId, ch);
+          channels = Array.from(merged.values());
+        }
+      } catch (e) {
+        console.log('Error loading enterprise-scoped monitors (non-fatal):', e.message);
+      }
+    }
+    console.log('Found monitored channels (merged):', channels.length);
 
     await client.views.open({
       trigger_id: body.trigger_id,

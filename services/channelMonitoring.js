@@ -336,13 +336,16 @@ function manageMonitoredChannelsModal(channels) {
     channels.forEach((channel, _index) => {
       const statusEmoji = channel.enabled ? '✅' : '❌';
       const jiraEmoji = channel.autoCreateJiraTickets ? '🎫' : '';
+      const channelMention = channel.channelName && channel.channelName !== 'Unknown Channel'
+        ? `<#${channel.channelId}|${channel.channelName}>`
+        : `<#${channel.channelId}>`;
 
       blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
           text:
-            `${statusEmoji} *#${channel.channelName}*\n` +
+            `${statusEmoji} *${channelMention}*\n` +
             `Response Type: *${channel.responseType}*\n` +
             `Auto-Jira: ${channel.autoCreateJiraTickets ? 'Enabled' : 'Disabled'} ${jiraEmoji}\n` +
             `Added: ${new Date(channel.addedAt).toLocaleDateString()}`,
