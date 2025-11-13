@@ -6,6 +6,31 @@ const salesforceService = require('./services/salesforceService');
 const channelMonitoring = require('./services/channelMonitoring');
 require('dotenv').config();
 
+// ========= Multi-tenant helpers and legacy migration config =========
+const LEGACY_TEAM_IDS = (process.env.LEGACY_TEAM_IDS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function resolveStorageTeamId(context, fallbackTeamId) {
+  if (context?.isEnterpriseInstall && context?.enterpriseId) {
+    return context.enterpriseId;
+  }
+  return fallbackTeamId;
+}
+
+function extractTeamIdFromPayload(context, body, fallback = 'unknown') {
+  return context?.teamId || body?.team?.id || body?.user?.team_id || fallback;
+}
+
+function cloneWithout(obj, fields = []) {
+  const copy = { ...obj };
+  for (const f of fields) {
+    if (f in copy) delete copy[f];
+  }
+  return copy;
+}
+
 // Initialize your app with your bot token and signing secret
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -19,35 +44,77 @@ const app = new App({
   }
 });
 
-// Helper function to check for key-phrase response matches
+async function migrateKeyPhraseResponsesIfNeeded(targetTeamId) {
+  if (!LEGACY_TEAM_IDS.length) return false;
+  for (const legacyId of LEGACY_TEAM_IDS) {
+    if (!legacyId || legacyId === targetTeamId) continue;
+    const legacy = await redisService.getAllKeyPhraseResponses(legacyId);
+    if (legacy.length > 0) {
+      for (const r of legacy) {
+        await redisService.saveKeyPhraseResponse(targetTeamId, cloneWithout(r, ['teamId']));
+      }
+      console.log(`Migrated ${legacy.length} key-phrase responses from ${legacyId} -> ${targetTeamId}`);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function getKeyPhraseResponsesForTeam(storageTeamId) {
+  let responses = await redisService.getAllKeyPhraseResponses(storageTeamId);
+  if (responses.length === 0) {
+    const migrated = await migrateKeyPhraseResponsesIfNeeded(storageTeamId);
+    if (migrated) {
+      responses = await redisService.getAllKeyPhraseResponses(storageTeamId);
+    }
+  }
+  return responses;
+}
+
+async function findAndMigrateSuggestedPrompt(storageTeamId, promptId) {
+  let prompt = await redisService.getSuggestedPrompt(storageTeamId, promptId);
+  if (prompt) {
+    return { prompt, effectiveTeamId: storageTeamId };
+  }
+  if (LEGACY_TEAM_IDS.length) {
+    for (const legacyId of LEGACY_TEAM_IDS) {
+      if (!legacyId || legacyId === storageTeamId) continue;
+      const legacy = await redisService.getSuggestedPrompt(legacyId, promptId);
+      if (legacy) {
+        await redisService.saveSuggestedPrompt(storageTeamId, cloneWithout(legacy, ['teamId']));
+        const migrated = await redisService.getSuggestedPrompt(storageTeamId, promptId);
+        console.log(`Migrated suggested prompt ${promptId} from ${legacyId} -> ${storageTeamId}`);
+        return { prompt: migrated || legacy, effectiveTeamId: storageTeamId };
+      }
+    }
+  }
+  return { prompt: null, effectiveTeamId: storageTeamId };
+}
+
+async function findAndMigrateKeyPhraseResponse(storageTeamId, responseId) {
+  let response = await redisService.getKeyPhraseResponse(storageTeamId, responseId);
+  if (response) {
+    return { response, effectiveTeamId: storageTeamId };
+  }
+  if (LEGACY_TEAM_IDS.length) {
+    for (const legacyId of LEGACY_TEAM_IDS) {
+      if (!legacyId || legacyId === storageTeamId) continue;
+      const legacy = await redisService.getKeyPhraseResponse(legacyId, responseId);
+      if (legacy) {
+        await redisService.saveKeyPhraseResponse(storageTeamId, cloneWithout(legacy, ['teamId']));
+        const migrated = await redisService.getKeyPhraseResponse(storageTeamId, responseId);
+        console.log(`Migrated key-phrase response ${responseId} from ${legacyId} -> ${storageTeamId}`);
+        return { response: migrated || legacy, effectiveTeamId: storageTeamId };
+      }
+    }
+  }
+  return { response: null, effectiveTeamId: storageTeamId };
+}
+// Helper function to check for key-phrase response matches (multi-tenant safe)
 async function checkKeyPhraseResponse(message, teamId, context = null) {
   try {
-    // For enterprise installs, aggregate responses from all team IDs
-    let allResponses = [];
-    if (context?.isEnterpriseInstall && context?.enterpriseId) {
-      // Get responses from enterprise-wide storage
-      const enterpriseResponses = await redisService.getAllKeyPhraseResponses(context.enterpriseId);
-      
-      // Get responses from known team IDs
-      const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-      
-      // Get responses from all known team IDs
-      const allTeamResponses = [];
-      for (const teamId of knownTeamIds) {
-        const teamResponses = await redisService.getAllKeyPhraseResponses(teamId);
-        allTeamResponses.push(...teamResponses);
-      }
-      
-      // Combine all responses and remove duplicates by ID
-      const allResponsesMap = new Map();
-      [...enterpriseResponses, ...allTeamResponses].forEach(response => {
-        allResponsesMap.set(response.id, response);
-      });
-      allResponses = Array.from(allResponsesMap.values());
-    } else {
-      // Non-enterprise: use team-specific data
-      allResponses = await redisService.getAllKeyPhraseResponses(teamId);
-    }
+    const storageTeamId = resolveStorageTeamId(context, teamId);
+    const allResponses = await getKeyPhraseResponsesForTeam(storageTeamId);
     
     const enabledResponses = allResponses.filter(r => r.enabled !== false);
     
@@ -841,52 +908,28 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
     // Get user-specific system prompt configuration - use data aggregation pattern like other modals
     let userSystemPrompt = null;
     if (teamId && userId) {
-      // Use data aggregation pattern like other modals (suggested prompts, key-phrase responses)
-      if (teamId.startsWith('E')) {
-        // This is an enterprise ID, check enterprise first
-        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
-        console.log('Enterprise system prompt for chat:', userSystemPrompt ? 'Found' : 'Not found');
-        if (userSystemPrompt) {
-          console.log('Retrieved system prompt data:', {
-            tone: userSystemPrompt.tone,
-            businessType: userSystemPrompt.businessType,
-            companyName: userSystemPrompt.companyName,
-            additionalDirections: userSystemPrompt.additionalDirections,
-            welcomeMessage: userSystemPrompt.welcomeMessage
-          });
-        }
-        
-        // If not found in enterprise, check known team IDs
-        if (!userSystemPrompt) {
-          const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-          for (const knownTeamId of knownTeamIds) {
-            const teamPrompt = await redisService.getUserSystemPrompt(knownTeamId, userId);
-            if (teamPrompt) {
-              userSystemPrompt = teamPrompt;
-              console.log(`Found system prompt for chat in team ${knownTeamId}`);
-              console.log('Retrieved team system prompt data:', {
-                tone: userSystemPrompt.tone,
-                businessType: userSystemPrompt.businessType,
-                companyName: userSystemPrompt.companyName,
-                additionalDirections: userSystemPrompt.additionalDirections,
-                welcomeMessage: userSystemPrompt.welcomeMessage
-              });
-              break;
-            }
+      const storageTeamIdForChat = resolveStorageTeamId(context, teamId);
+      userSystemPrompt = await redisService.getUserSystemPrompt(storageTeamIdForChat, userId);
+      if (!userSystemPrompt && LEGACY_TEAM_IDS.length) {
+        for (const legacyId of LEGACY_TEAM_IDS) {
+          if (!legacyId || legacyId === storageTeamIdForChat) continue;
+          const legacyPrompt = await redisService.getUserSystemPrompt(legacyId, userId);
+          if (legacyPrompt) {
+            await redisService.saveUserSystemPrompt(storageTeamIdForChat, userId, cloneWithout(legacyPrompt, ['teamId', 'userId']));
+            userSystemPrompt = await redisService.getUserSystemPrompt(storageTeamIdForChat, userId);
+            console.log(`Migrated user system prompt for chat from ${legacyId} -> ${storageTeamIdForChat}`);
+            break;
           }
         }
-      } else {
-        // Non-enterprise: use team-specific data
-        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
-        if (userSystemPrompt) {
-          console.log('Retrieved non-enterprise system prompt data:', {
-            tone: userSystemPrompt.tone,
-            businessType: userSystemPrompt.businessType,
-            companyName: userSystemPrompt.companyName,
-            additionalDirections: userSystemPrompt.additionalDirections,
-            welcomeMessage: userSystemPrompt.welcomeMessage
-          });
-        }
+      }
+      if (userSystemPrompt) {
+        console.log('Retrieved system prompt data:', {
+          tone: userSystemPrompt.tone,
+          businessType: userSystemPrompt.businessType,
+          companyName: userSystemPrompt.companyName,
+          additionalDirections: userSystemPrompt.additionalDirections,
+          welcomeMessage: userSystemPrompt.welcomeMessage
+        });
       }
     }
     
@@ -1083,38 +1126,28 @@ app.event('assistant_thread_started', async ({ event, client, context }) => {
     console.log('Context teamId:', context?.teamId);
     console.log('Final teamId:', teamId);
     
-    // Get suggested prompts - aggregate from all team IDs for enterprise installs
-    let allPrompts = [];
-    if (context?.isEnterpriseInstall && context?.enterpriseId) {
-      // Get prompts from enterprise-wide storage
-      const enterprisePrompts = await redisService.getAllSuggestedPrompts(context.enterpriseId);
-      console.log('Enterprise-wide prompts for chat:', enterprisePrompts.length);
-      
-      // Get prompts from known team IDs
-      const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-      console.log('Checking known team IDs for chat prompts:', knownTeamIds);
-      
-      // Get prompts from all known team IDs
-      const allTeamPrompts = [];
-      for (const teamId of knownTeamIds) {
-        const teamPrompts = await redisService.getAllSuggestedPrompts(teamId);
-        console.log(`Chat prompts from team ${teamId}:`, teamPrompts.length);
-        allTeamPrompts.push(...teamPrompts);
+    // Get suggested prompts for current storage team with optional migration
+    const storageTeamId = resolveStorageTeamId(context, teamId);
+    const allPrompts = await (async () => {
+      // read current
+      let prompts = await redisService.getAllSuggestedPrompts(storageTeamId);
+      if (prompts.length === 0 && LEGACY_TEAM_IDS.length) {
+        for (const legacyId of LEGACY_TEAM_IDS) {
+          if (!legacyId || legacyId === storageTeamId) continue;
+          const legacyPrompts = await redisService.getAllSuggestedPrompts(legacyId);
+          if (legacyPrompts.length > 0) {
+            for (const p of legacyPrompts) {
+              await redisService.saveSuggestedPrompt(storageTeamId, cloneWithout(p, ['teamId']));
+            }
+            console.log(`Migrated ${legacyPrompts.length} suggested prompts from ${legacyId} -> ${storageTeamId}`);
+            prompts = await redisService.getAllSuggestedPrompts(storageTeamId);
+            break;
+          }
+        }
       }
-      
-      // Combine all prompts and remove duplicates by ID
-      const allPromptsMap = new Map();
-      [...enterprisePrompts, ...allTeamPrompts].forEach(prompt => {
-        allPromptsMap.set(prompt.id, prompt);
-      });
-      allPrompts = Array.from(allPromptsMap.values());
-      
-      console.log('Total aggregated prompts for chat:', allPrompts.length);
-    } else {
-      // Non-enterprise: use team-specific data
-      allPrompts = await redisService.getAllSuggestedPrompts(teamId);
-      console.log('Retrieved prompts for team:', teamId, allPrompts);
-    }
+      return prompts;
+    })();
+    console.log('Retrieved prompts for storage team:', storageTeamId, allPrompts.length);
     
     const enabledPrompts = allPrompts.filter(prompt => prompt.enabled !== false);
     console.log('Enabled prompts for chat:', enabledPrompts);
@@ -1148,36 +1181,26 @@ app.event('assistant_thread_started', async ({ event, client, context }) => {
       console.log('No enabled prompts found for team:', teamId);
     }
     
-    // Get user-specific welcome message - aggregate from all team IDs for enterprise installs
+    // Get user-specific welcome message from storage team (with optional migration)
     const userId = event.assistant_thread?.user_id;
     let welcomeMessage = 'Hello! How can I help you today?'; // Default message
     
     if (userId && teamId !== 'unknown') {
-      let userSystemPrompt = null;
-      
-      // Use data aggregation pattern like other modals (suggested prompts, key-phrase responses)
-      if (teamId.startsWith('E')) {
-        // This is an enterprise ID, check enterprise first
-        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
-        console.log('Enterprise system prompt for welcome:', userSystemPrompt ? 'Found' : 'Not found');
-        
-        // If not found in enterprise, check known team IDs
-        if (!userSystemPrompt) {
-          const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-          for (const knownTeamId of knownTeamIds) {
-            const teamPrompt = await redisService.getUserSystemPrompt(knownTeamId, userId);
-            if (teamPrompt) {
-              userSystemPrompt = teamPrompt;
-              console.log(`Found system prompt for welcome in team ${knownTeamId}`);
-              break;
-            }
+      const storageTeamIdForWelcome = resolveStorageTeamId(context, teamId);
+      let userSystemPrompt = await redisService.getUserSystemPrompt(storageTeamIdForWelcome, userId);
+      if (!userSystemPrompt && LEGACY_TEAM_IDS.length) {
+        for (const legacyId of LEGACY_TEAM_IDS) {
+          if (!legacyId || legacyId === storageTeamIdForWelcome) continue;
+          const legacyPrompt = await redisService.getUserSystemPrompt(legacyId, userId);
+          if (legacyPrompt) {
+            await redisService.saveUserSystemPrompt(storageTeamIdForWelcome, userId, cloneWithout(legacyPrompt, ['teamId', 'userId']));
+            userSystemPrompt = await redisService.getUserSystemPrompt(storageTeamIdForWelcome, userId);
+            console.log(`Migrated user system prompt from ${legacyId} -> ${storageTeamIdForWelcome} for user ${userId}`);
+            break;
           }
         }
-      } else {
-        // Non-enterprise: use team-specific data
-        userSystemPrompt = await redisService.getUserSystemPrompt(teamId, userId);
       }
-      
+     
       if (userSystemPrompt?.welcomeMessage) {
         welcomeMessage = userSystemPrompt.welcomeMessage;
       }
@@ -1903,54 +1926,25 @@ app.action('view_suggested_prompts_button', async ({ ack, body, client, context 
   await ack();
   
   try {
-    // Multi-tenant team ID resolution for enterprise installs
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    
-    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      teamId = context.enterpriseId;
-      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
-    }
-    
-    console.log('View prompts - teamId:', teamId);
-    console.log('View prompts - context.teamId:', context.teamId);
-    console.log('View prompts - body.team?.id:', body.team?.id);
-    console.log('View prompts - body.user?.team_id:', body.user?.team_id);
-    console.log('View prompts - context.enterpriseId:', context.enterpriseId);
-    
-    // For enterprise installs, aggregate prompts from all team IDs plus enterprise-wide data
-    let allPrompts = [];
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      // Get prompts from enterprise-wide storage
-      const enterprisePrompts = await redisService.getAllSuggestedPrompts(context.enterpriseId);
-      console.log('Enterprise-wide prompts:', enterprisePrompts.length);
-      
-      // Get prompts from known team IDs (T06HQGPEVBL and T06JDB9ES9W based on logs)
-      const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-      console.log('Checking known team IDs for prompts:', knownTeamIds);
-      
-      // Get prompts from all known team IDs
-      const allTeamPrompts = [];
-      for (const teamId of knownTeamIds) {
-        const teamPrompts = await redisService.getAllSuggestedPrompts(teamId);
-        console.log(`Prompts from team ${teamId}:`, teamPrompts.length);
-        allTeamPrompts.push(...teamPrompts);
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
+    let allPrompts = await redisService.getAllSuggestedPrompts(storageTeamId);
+    if (allPrompts.length === 0 && LEGACY_TEAM_IDS.length) {
+      for (const legacyId of LEGACY_TEAM_IDS) {
+        if (!legacyId || legacyId === storageTeamId) continue;
+        const legacyPrompts = await redisService.getAllSuggestedPrompts(legacyId);
+        if (legacyPrompts.length > 0) {
+          for (const p of legacyPrompts) {
+            await redisService.saveSuggestedPrompt(storageTeamId, cloneWithout(p, ['teamId']));
+          }
+          allPrompts = await redisService.getAllSuggestedPrompts(storageTeamId);
+          console.log(`Migrated ${legacyPrompts.length} suggested prompts from ${legacyId} -> ${storageTeamId}`);
+          break;
+        }
       }
-      
-      // Combine all prompts and remove duplicates by ID
-      const allPromptsMap = new Map();
-      [...enterprisePrompts, ...allTeamPrompts].forEach(prompt => {
-        allPromptsMap.set(prompt.id, prompt);
-      });
-      allPrompts = Array.from(allPromptsMap.values());
-      
-      console.log('Total aggregated prompts from all teams:', allPrompts.length);
-    } else {
-      // Non-enterprise: use team-specific data
-      allPrompts = await redisService.getAllSuggestedPrompts(teamId);
     }
     
-    console.log('View prompts - retrieved prompts:', allPrompts);
+    console.log('View prompts - retrieved prompts:', { storageTeamId, count: allPrompts.length });
     
     const blocks = [
       {
@@ -2381,25 +2375,12 @@ app.action(/^edit_prompt_(.+)$/, async ({ ack, body, client, action, context }) 
   await ack();
   
   try {
-    // Find which team ID this prompt is stored under
     const promptId = action.value;
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    let prompt = null;
-    
-    // For enterprise installs, search all known team IDs to find where the prompt is stored
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
-      for (const tid of knownTeamIds) {
-        const foundPrompt = await redisService.getSuggestedPrompt(tid, promptId);
-        if (foundPrompt) {
-          prompt = foundPrompt;
-          teamId = tid; // Use the team ID where we actually found it
-          console.log(`Found prompt ${promptId} in team ${tid}`);
-          break;
-        }
-      }
-    } else {
-      prompt = await redisService.getSuggestedPrompt(teamId, promptId);
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
+    const { prompt, effectiveTeamId } = await findAndMigrateSuggestedPrompt(storageTeamId, promptId);
+    if (effectiveTeamId !== storageTeamId) {
+      console.log('Using migrated prompt team context:', { storageTeamId, effectiveTeamId });
     }
     
     if (!prompt) {
@@ -2486,14 +2467,9 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client, context }) =
   await ack();
   
   try {
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    
-    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      teamId = context.enterpriseId;
-      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
-    }
     const promptId = view.private_metadata;
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
     const values = view.state.values;
     
     const buttonText = values.prompt_button_text.button_text.value;
@@ -2512,7 +2488,7 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client, context }) =
       messageText: messageText.trim()
     };
     
-    const success = await redisService.updateSuggestedPrompt(teamId, promptId, updates);
+    const success = await redisService.updateSuggestedPrompt(storageTeamId, promptId, updates);
     
     if (success) {
       // Get the root view_id (the original "View Prompts" modal)
@@ -2521,7 +2497,7 @@ app.view('edit_suggested_prompt', async ({ ack, body, view, client, context }) =
       // Wait a moment for the edit modal to close and return to the original modal
       setTimeout(async () => {
         try {
-          const blocks = await getViewPromptsBlocks(teamId);
+          const blocks = await getViewPromptsBlocks(storageTeamId);
           await client.views.update({
             view_id: rootViewId,
             view: {
@@ -2562,26 +2538,11 @@ app.action(/^toggle_prompt_(.+)$/, async ({ ack, body, client, action, context }
   await ack();
   
   try {
-    // Find which team ID this prompt is stored under
     const promptId = action.value;
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    let prompt = null;
-    
-    // For enterprise installs, search all known team IDs to find where the prompt is stored
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
-      for (const tid of knownTeamIds) {
-        const foundPrompt = await redisService.getSuggestedPrompt(tid, promptId);
-        if (foundPrompt) {
-          prompt = foundPrompt;
-          teamId = tid; // Use the team ID where we actually found it
-          console.log(`Found prompt ${promptId} in team ${tid}`);
-          break;
-        }
-      }
-    } else {
-      prompt = await redisService.getSuggestedPrompt(teamId, promptId);
-    }
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
+    const { prompt, effectiveTeamId } = await findAndMigrateSuggestedPrompt(storageTeamId, promptId);
+    const teamId = effectiveTeamId;
     
     if (!prompt) {
       await client.chat.postMessage({
@@ -2617,39 +2578,22 @@ app.action(/^delete_prompt_(.+)$/, async ({ ack, body, client, action, context }
   await ack();
   
   try {
-    // Find which team ID this prompt is stored under
     const promptId = action.value;
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    let foundTeamId = null;
-    
-    // For enterprise installs, search all known team IDs to find where the prompt is stored
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
-      for (const tid of knownTeamIds) {
-        const foundPrompt = await redisService.getSuggestedPrompt(tid, promptId);
-        if (foundPrompt) {
-          foundTeamId = tid; // Use the team ID where we actually found it
-          console.log(`Found prompt ${promptId} to delete in team ${tid}`);
-          break;
-        }
-      }
-      
-      if (!foundTeamId) {
-        await client.chat.postMessage({
-          channel: body.user.id,
-          text: '❌ Prompt not found. It may have already been deleted.'
-        });
-        return;
-      }
-      
-      teamId = foundTeamId;
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
+    const { prompt, effectiveTeamId } = await findAndMigrateSuggestedPrompt(storageTeamId, promptId);
+    if (!prompt) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Prompt not found. It may have already been deleted.'
+      });
+      return;
     }
-    
-    const success = await redisService.deleteSuggestedPrompt(teamId, promptId);
+    const success = await redisService.deleteSuggestedPrompt(effectiveTeamId, promptId);
     
     if (success) {
       // Update the modal view to reflect the deletion
-      await updateViewPromptsModal(client, body, teamId);
+      await updateViewPromptsModal(client, body, effectiveTeamId);
     } else {
       await client.chat.postMessage({
         channel: body.user.id,
@@ -2971,20 +2915,9 @@ app.action('view_key_phrase_responses_button', async ({ ack, body, client, conte
   await ack();
   
   try {
-    // Multi-tenant team ID resolution for enterprise installs
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    
-    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      teamId = context.enterpriseId;
-      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
-    }
-    
-    console.log('View key-phrase responses - teamId:', teamId);
-    console.log('View key-phrase responses - context.teamId:', context.teamId);
-    console.log('View key-phrase responses - body.team?.id:', body.team?.id);
-    console.log('View key-phrase responses - context.enterpriseId:', context.enterpriseId);
-    const blocks = await getViewKeyPhraseResponsesBlocks(teamId, context, body);
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
+    const blocks = await getViewKeyPhraseResponsesBlocks(storageTeamId);
     
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -3019,26 +2952,11 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action, context }
   await ack();
   
   try {
-    // Find which team ID this response is stored under
     const responseId = action.value;
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    let response = null;
-    
-    // For enterprise installs, search all known team IDs to find where the response is stored
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
-      for (const tid of knownTeamIds) {
-        const foundResponse = await redisService.getKeyPhraseResponse(tid, responseId);
-        if (foundResponse) {
-          response = foundResponse;
-          teamId = tid; // Use the team ID where we actually found it
-          console.log(`Found response ${responseId} in team ${tid}`);
-          break;
-        }
-      }
-    } else {
-      response = await redisService.getKeyPhraseResponse(teamId, responseId);
-    }
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
+    const { response, effectiveTeamId } = await findAndMigrateKeyPhraseResponse(storageTeamId, responseId);
+    const teamId = effectiveTeamId;
     
     if (!response) {
       await client.chat.postMessage({
@@ -3149,14 +3067,9 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
   await ack();
   
   try {
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    
-    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      teamId = context.enterpriseId;
-      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
-    }
     const responseId = view.private_metadata;
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
     const values = view.state.values;
     
     const triggerPhrase = values.trigger_phrase.trigger_text.value;
@@ -3177,7 +3090,7 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
       thinkingDelay: parseInt(thinkingDelay) || 0
     };
     
-    const success = await redisService.updateKeyPhraseResponse(teamId, responseId, updates);
+    const success = await redisService.updateKeyPhraseResponse(storageTeamId, responseId, updates);
     
     if (success) {
       // Update the underlying view after a short delay to ensure the edit modal has closed
@@ -3196,7 +3109,7 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
                 type: 'plain_text',
                 text: 'Close'
               },
-              blocks: await getViewKeyPhraseResponsesBlocks(teamId, context, body)
+              blocks: await getViewKeyPhraseResponsesBlocks(storageTeamId)
             }
           });
         } catch (updateError) {
@@ -3262,7 +3175,7 @@ app.action(/^toggle_response_(.+)$/, async ({ ack, body, client, action, context
     
     if (success) {
       // Update the modal to reflect the change
-      await updateViewKeyPhraseResponsesModal(client, body, teamId, context);
+      await updateViewKeyPhraseResponsesModal(client, body, teamId);
       
       await client.chat.postMessage({
         channel: body.user.id,
@@ -3288,39 +3201,22 @@ app.action(/^delete_response_(.+)$/, async ({ ack, body, client, action, context
   await ack();
   
   try {
-    // Find which team ID this response is stored under
     const responseId = action.value;
-    let teamId = context.teamId || body.team?.id || 'unknown';
-    let foundTeamId = null;
-    
-    // For enterprise installs, search all known team IDs to find where the response is stored
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      const knownTeamIds = [context.enterpriseId, 'T06HQGPEVBL', 'T06JDB9ES9W'];
-      for (const tid of knownTeamIds) {
-        const foundResponse = await redisService.getKeyPhraseResponse(tid, responseId);
-        if (foundResponse) {
-          foundTeamId = tid; // Use the team ID where we actually found it
-          console.log(`Found response ${responseId} to delete in team ${tid}`);
-          break;
-        }
-      }
-      
-      if (!foundTeamId) {
-        await client.chat.postMessage({
-          channel: body.user.id,
-          text: '❌ Response not found. It may have already been deleted.'
-        });
-        return;
-      }
-      
-      teamId = foundTeamId;
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
+    const { response, effectiveTeamId } = await findAndMigrateKeyPhraseResponse(storageTeamId, responseId);
+    if (!response) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Response not found. It may have already been deleted.'
+      });
+      return;
     }
-    
-    const success = await redisService.deleteKeyPhraseResponse(teamId, responseId);
+    const success = await redisService.deleteKeyPhraseResponse(effectiveTeamId, responseId);
     
     if (success) {
       // Update the modal to reflect the change
-      await updateViewKeyPhraseResponsesModal(client, body, teamId, context);
+      await updateViewKeyPhraseResponsesModal(client, body, effectiveTeamId);
       
       await client.chat.postMessage({
         channel: body.user.id,
@@ -3354,30 +3250,20 @@ app.action('configure_system_prompt_button', async ({ ack, body, client, context
   
   try {
     const userId = body.user.id;
-    
-    // Use data aggregation pattern like other modals (suggested prompts, key-phrase responses)
-    let existingPrompt = null;
-    if (context?.isEnterpriseInstall && context?.enterpriseId) {
-      // Try enterprise ID first
-      existingPrompt = await redisService.getUserSystemPrompt(context.enterpriseId, userId);
-      console.log('Enterprise system prompt:', existingPrompt ? 'Found' : 'Not found');
-      
-      // If not found in enterprise, check known team IDs
-      if (!existingPrompt) {
-        const knownTeamIds = ['T06HQGPEVBL', 'T06JDB9ES9W'];
-        for (const knownTeamId of knownTeamIds) {
-          const teamPrompt = await redisService.getUserSystemPrompt(knownTeamId, userId);
-          if (teamPrompt) {
-            existingPrompt = teamPrompt;
-            console.log(`Found system prompt in team ${knownTeamId}`);
-            break;
-          }
+    const initialTeamId = extractTeamIdFromPayload(context, body);
+    const storageTeamId = resolveStorageTeamId(context, initialTeamId);
+    let existingPrompt = await redisService.getUserSystemPrompt(storageTeamId, userId);
+    if (!existingPrompt && LEGACY_TEAM_IDS.length) {
+      for (const legacyId of LEGACY_TEAM_IDS) {
+        if (!legacyId || legacyId === storageTeamId) continue;
+        const legacy = await redisService.getUserSystemPrompt(legacyId, userId);
+        if (legacy) {
+          await redisService.saveUserSystemPrompt(storageTeamId, userId, cloneWithout(legacy, ['teamId', 'userId']));
+          existingPrompt = await redisService.getUserSystemPrompt(storageTeamId, userId);
+          console.log(`Migrated system prompt for user ${userId} from ${legacyId} -> ${storageTeamId}`);
+          break;
         }
       }
-    } else {
-      // Non-enterprise: use team-specific data
-      const teamId = context.teamId || body.team?.id || body.user?.team_id || 'unknown';
-      existingPrompt = await redisService.getUserSystemPrompt(teamId, userId);
     }
     
     await client.views.open({
