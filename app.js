@@ -37,7 +37,13 @@ function cloneWithout(obj, fields = []) {
 
 // Channel monitoring should always be scoped to the workspace (team) ID.
 function getMonitoringTeamId(context, body) {
-  return body?.team?.id || context?.teamId || 'unknown';
+  // Prefer explicit team on the current view (present in modal/home submissions),
+  // then fall back to body.team.id, then user.team_id, then context.teamId.
+  return body?.view?.team_id
+    || body?.team?.id
+    || body?.user?.team_id
+    || context?.teamId
+    || 'unknown';
 }
 
 // Resolve which storage scope (team or enterprise) holds credentials for an integration.
@@ -4091,7 +4097,8 @@ app.action('add_monitored_channel', async ({ ack, body, client }) => {
 
   const view = channelMonitoring.addMonitoredChannelModal();
   try {
-    if (body.view?.id) {
+    const isModal = body?.view?.type === 'modal';
+    if (isModal) {
       // Invoked from inside a modal → push onto the modal stack
       await client.views.push({
         trigger_id: body.trigger_id,
@@ -4263,9 +4270,14 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
       // Continue; auto-responses require the bot to be a member. The user can invite the bot to private channels.
     }
 
-    // Get channel info to get the name
-    const channelInfo = await client.conversations.info({ channel: channelId });
-    const channelName = channelInfo.channel?.name || 'Unknown Channel';
+    // Get channel info to get the name (best-effort)
+    let channelName = 'Unknown Channel';
+    try {
+      const channelInfo = await client.conversations.info({ channel: channelId });
+      channelName = channelInfo.channel?.name || channelName;
+    } catch (e) {
+      console.log('Could not fetch channel info (missing scope or private):', e.data?.error || e.message);
+    }
 
     const result = await channelMonitoring.addMonitoredChannel(teamId, {
       channelId,
