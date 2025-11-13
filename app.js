@@ -11,6 +11,10 @@ const LEGACY_TEAM_IDS = (process.env.LEGACY_TEAM_IDS || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+const LEGACY_MIGRATION_TARGET_IDS = (process.env.LEGACY_MIGRATION_TARGET_IDS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 function resolveStorageTeamId(context, fallbackTeamId) {
   if (context?.isEnterpriseInstall && context?.enterpriseId) {
@@ -71,7 +75,36 @@ if (hasOAuth) {
 
 const app = new App(slackAppOptions);
 
+// Optional uninstall cleanup handler
+app.event('app_uninstalled', async ({ event, context }) => {
+  try {
+    console.log('app_uninstalled received:', { teamId: context?.teamId, enterpriseId: context?.enterpriseId, isEnterprise: context?.isEnterpriseInstall });
+    // Delete installation record
+    await redisService.deleteInstallation({
+      teamId: context?.teamId,
+      enterpriseId: context?.enterpriseId,
+      isEnterpriseInstall: context?.isEnterpriseInstall
+    });
+    // Optional data cleanup per team (guarded by env)
+    if (process.env.CLEAR_DATA_ON_UNINSTALL === 'true') {
+      const storageId = context?.isEnterpriseInstall && context?.enterpriseId ? context.enterpriseId : context?.teamId;
+      if (storageId) {
+        await redisService.deleteAllTeamData(storageId);
+      }
+    }
+  } catch (error) {
+    console.error('Error handling app_uninstalled:', error);
+  }
+});
+
+function isMigrationAllowedForTarget(targetTeamId) {
+  if (!targetTeamId || targetTeamId === 'unknown') return false;
+  if (LEGACY_MIGRATION_TARGET_IDS.length === 0) return false;
+  return LEGACY_MIGRATION_TARGET_IDS.includes(targetTeamId);
+}
+
 async function migrateKeyPhraseResponsesIfNeeded(targetTeamId) {
+  if (!isMigrationAllowedForTarget(targetTeamId)) return false;
   if (!LEGACY_TEAM_IDS.length) return false;
   for (const legacyId of LEGACY_TEAM_IDS) {
     if (!legacyId || legacyId === targetTeamId) continue;
@@ -103,7 +136,7 @@ async function findAndMigrateSuggestedPrompt(storageTeamId, promptId) {
   if (prompt) {
     return { prompt, effectiveTeamId: storageTeamId };
   }
-  if (LEGACY_TEAM_IDS.length) {
+  if (isMigrationAllowedForTarget(storageTeamId) && LEGACY_TEAM_IDS.length) {
     for (const legacyId of LEGACY_TEAM_IDS) {
       if (!legacyId || legacyId === storageTeamId) continue;
       const legacy = await redisService.getSuggestedPrompt(legacyId, promptId);
@@ -123,7 +156,7 @@ async function findAndMigrateKeyPhraseResponse(storageTeamId, responseId) {
   if (response) {
     return { response, effectiveTeamId: storageTeamId };
   }
-  if (LEGACY_TEAM_IDS.length) {
+  if (isMigrationAllowedForTarget(storageTeamId) && LEGACY_TEAM_IDS.length) {
     for (const legacyId of LEGACY_TEAM_IDS) {
       if (!legacyId || legacyId === storageTeamId) continue;
       const legacy = await redisService.getKeyPhraseResponse(legacyId, responseId);
@@ -937,7 +970,7 @@ async function callGrokAPI(message, userId, conversationHistory = [], teamId = n
     if (teamId && userId) {
       const storageTeamIdForChat = resolveStorageTeamId(context, teamId);
       userSystemPrompt = await redisService.getUserSystemPrompt(storageTeamIdForChat, userId);
-      if (!userSystemPrompt && LEGACY_TEAM_IDS.length) {
+      if (!userSystemPrompt && isMigrationAllowedForTarget(storageTeamIdForChat) && LEGACY_TEAM_IDS.length) {
         for (const legacyId of LEGACY_TEAM_IDS) {
           if (!legacyId || legacyId === storageTeamIdForChat) continue;
           const legacyPrompt = await redisService.getUserSystemPrompt(legacyId, userId);
@@ -1215,7 +1248,7 @@ app.event('assistant_thread_started', async ({ event, client, context }) => {
     if (userId && teamId !== 'unknown') {
       const storageTeamIdForWelcome = resolveStorageTeamId(context, teamId);
       let userSystemPrompt = await redisService.getUserSystemPrompt(storageTeamIdForWelcome, userId);
-      if (!userSystemPrompt && LEGACY_TEAM_IDS.length) {
+      if (!userSystemPrompt && isMigrationAllowedForTarget(storageTeamIdForWelcome) && LEGACY_TEAM_IDS.length) {
         for (const legacyId of LEGACY_TEAM_IDS) {
           if (!legacyId || legacyId === storageTeamIdForWelcome) continue;
           const legacyPrompt = await redisService.getUserSystemPrompt(legacyId, userId);

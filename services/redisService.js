@@ -100,8 +100,8 @@ class RedisService {
       const key = isEnterprise
         ? `installation:${enterpriseId}`
         : `installation:${teamId}`;
-      
-      await this.client.setex(key, 86400 * 30, JSON.stringify(installation)); // 30 days TTL
+      // 60 days TTL
+      await this.client.setex(key, 86400 * 60, JSON.stringify(installation));
       console.log(`Saved installation for ${isEnterprise ? 'enterprise' : 'team'}: ${key}`);
       return Promise.resolve();
     } catch (error) {
@@ -153,6 +153,85 @@ class RedisService {
       console.error('Error deleting installation:', error);
       return Promise.reject(error);
     }
+  }
+
+  // =========================
+  // Bulk cleanup for a team
+  // =========================
+  async deleteAllSuggestedPrompts(teamId) {
+    if (!this.isConnected) return false;
+    try {
+      const pattern = `suggested_prompts:${teamId}:*`;
+      const keys = await this.client.keys(pattern);
+      if (keys.length > 0) {
+        await this.client.del(keys);
+      }
+      console.log(`Deleted all suggested prompts for team: ${teamId} (${keys.length} keys)`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting all suggested prompts:', error);
+      return false;
+    }
+  }
+
+  async deleteAllKeyPhraseResponses(teamId) {
+    if (!this.isConnected) return false;
+    try {
+      const pattern = `key_phrase_responses:${teamId}:*`;
+      const keys = await this.client.keys(pattern);
+      if (keys.length > 0) {
+        await this.client.del(keys);
+      }
+      console.log(`Deleted all key-phrase responses for team: ${teamId} (${keys.length} keys)`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting all key-phrase responses:', error);
+      return false;
+    }
+  }
+
+  async deleteAllUserSystemPrompts(teamId) {
+    if (!this.isConnected) return false;
+    try {
+      const pattern = `user_system_prompt:${teamId}:*`;
+      const keys = await this.client.keys(pattern);
+      if (keys.length > 0) {
+        await this.client.del(keys);
+      }
+      console.log(`Deleted all user system prompts for team: ${teamId} (${keys.length} keys)`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting all user system prompts:', error);
+      return false;
+    }
+  }
+
+  async deleteAllSalesforceTokens(teamId) {
+    if (!this.isConnected) return false;
+    try {
+      const pattern = `salesforce_tokens:${teamId}:*`;
+      const keys = await this.client.keys(pattern);
+      if (keys.length > 0) {
+        await this.client.del(keys);
+      }
+      console.log(`Deleted all Salesforce tokens for team: ${teamId} (${keys.length} keys)`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting all Salesforce tokens:', error);
+      return false;
+    }
+  }
+
+  async deleteAllTeamData(teamId) {
+    const results = await Promise.allSettled([
+      this.deleteAllSuggestedPrompts(teamId),
+      this.deleteAllKeyPhraseResponses(teamId),
+      this.deleteAllUserSystemPrompts(teamId),
+      this.deleteAllSalesforceTokens(teamId),
+    ]);
+    const summary = results.map(r => r.status).every(s => s === 'fulfilled');
+    console.log(`Team data cleanup for ${teamId} complete. ok=${summary}`);
+    return summary;
   }
 
   // Credential Management for Integrations
