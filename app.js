@@ -35,6 +35,11 @@ function cloneWithout(obj, fields = []) {
   return copy;
 }
 
+// Channel monitoring should always be scoped to the workspace (team) ID.
+function getMonitoringTeamId(context, body) {
+  return body?.team?.id || context?.teamId || 'unknown';
+}
+
 // Resolve which storage scope (team or enterprise) holds credentials for an integration.
 // Priority: teamId first (workspace-scoped), then enterpriseId (org-scoped).
 async function resolveIntegrationScope(integrationType, context) {
@@ -4077,11 +4082,21 @@ app.action('add_monitored_channel', async ({ ack, body, client }) => {
   console.log('Add monitored channel button clicked');
   await ack();
 
+  const view = channelMonitoring.addMonitoredChannelModal();
   try {
-    await client.views.open({
-      trigger_id: body.trigger_id,
-      view: channelMonitoring.addMonitoredChannelModal()
-    });
+    if (body.view?.id) {
+      // Invoked from inside a modal → push onto the modal stack
+      await client.views.push({
+        trigger_id: body.trigger_id,
+        view
+      });
+    } else {
+      // Invoked from App Home or elsewhere → open a new modal
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view
+      });
+    }
   } catch (error) {
     console.error('Add monitored channel modal error:', error);
   }
@@ -4093,15 +4108,13 @@ app.action('manage_monitored_channels', async ({ ack, body, client, context }) =
   await ack();
 
   try {
-    // Use enterprise ID for data storage in enterprise installs to ensure consistency across devices
-    let teamId = context.teamId;
-    
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      teamId = context.enterpriseId;
-      console.log('Enterprise install detected - using enterprise ID for data storage:', teamId);
-    }
+    // Always use team (workspace) scope for monitoring
+    const teamId = getMonitoringTeamId(context, body);
     console.log('Manage channels - teamId used for lookup:', teamId);
-    console.log('Body team vs context teamId:', { bodyTeam: body.team?.id, contextTeamId: context.teamId });
+    if (teamId === 'unknown') {
+      console.warn('Manage monitored channels called with unknown teamId; aborting to avoid enterprise-scoped writes.');
+      return;
+    }
     const channels = await channelMonitoring.getMonitoredChannels(teamId);
     console.log('Found monitored channels:', channels.length);
 
@@ -4207,34 +4220,16 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
   await ack();
 
   try {
-    // Multi-tenant team ID resolution for enterprise installs
-    console.log('Full modal submission context and body:', {
-      contextTeamId: context.teamId,
-      contextEnterpriseId: context.enterpriseId,
-      bodyTeam: body.team,
-      bodyUser: body.user,
-      viewTeamId: body.view?.team_id,
-      viewId: body.view?.id,
-      triggerId: body.trigger_id
-    });
-    
-    let teamId = context.teamId;
-    
-    // For enterprise installs, use enterprise ID for data storage to ensure consistency across devices
-    if (context.isEnterpriseInstall && context.enterpriseId) {
-      teamId = context.enterpriseId;
-      console.log('Enterprise install detected - using enterprise ID for data storage:', {
-        originalTeamId: context.teamId,
-        enterpriseId: context.enterpriseId,
-        correctedTeamId: teamId
-      });
+    // Team-only scope for monitoring
+    const teamId = getMonitoringTeamId(context, body);
+    if (teamId === 'unknown') {
+      console.warn('Add monitored channel called with unknown teamId; aborting to avoid enterprise-scoped writes.');
+      return;
     }
-    
+    console.log('Modal submission - teamId used for storage:', teamId);
+
     const userId = body.user?.id;
     
-    console.log('Modal submission - teamId used for storage:', teamId);
-    console.log('Context details:', { teamId: context.teamId, bodyTeamId: body.team?.id, enterpriseId: context.enterpriseId });
-
     const values = view.state.values;
     const channelId = values.channel_select?.channel_input?.selected_channel;
     const responseType = values.response_type?.response_type_input?.selected_option?.value;
@@ -4268,6 +4263,15 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
         user: userId,
         text: `✅ Channel #${channelName} added to monitoring successfully!\nResponse Type: ${responseType}`
       });
+      // If launched from the Manage modal, refresh it
+      const rootViewId = body.view?.root_view_id;
+      if (rootViewId) {
+        const updatedChannels = await channelMonitoring.getMonitoredChannels(teamId);
+        await client.views.update({
+          view_id: rootViewId,
+          view: channelMonitoring.manageMonitoredChannelsModal(updatedChannels)
+        });
+      }
     } else {
       await client.chat.postEphemeral({
         channel: userId,
