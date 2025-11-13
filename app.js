@@ -4123,28 +4123,40 @@ app.action('manage_monitored_channels', async ({ ack, body, client, context }) =
 
   try {
     // Always use team (workspace) scope for monitoring
-    const teamId = getMonitoringTeamId(context, body);
+    let teamId = getMonitoringTeamId(context, body);
+    if (teamId === 'unknown') {
+      // Fallback to Web API team.info (requires team:read)
+      try {
+        const info = await client.team.info();
+        teamId = info.team?.id || 'unknown';
+      } catch (e) {
+        console.warn('team.info fallback failed:', e.data?.error || e.message);
+      }
+    }
     console.log('Manage channels - teamId used for lookup:', teamId);
     if (teamId === 'unknown') {
       console.warn('Manage monitored channels called with unknown teamId; aborting to avoid enterprise-scoped writes.');
       return;
     }
-    let channels = await channelMonitoring.getMonitoredChannels(teamId);
 
-    // Also include any legacy enterprise-scoped monitors for visibility on enterprise installs
-    if (context.isEnterpriseInstall && context.enterpriseId) {
+    // Read from multiple plausible scopes and merge once for display
+    const idsToCheck = new Set([
+      teamId,
+      context?.teamId,
+      body?.user?.team_id,
+      context?.isEnterpriseInstall && context?.enterpriseId ? context.enterpriseId : null,
+    ].filter(Boolean));
+
+    const merged = new Map();
+    for (const id of idsToCheck) {
       try {
-        const enterpriseChannels = await channelMonitoring.getMonitoredChannels(context.enterpriseId);
-        if (Array.isArray(enterpriseChannels) && enterpriseChannels.length) {
-          const merged = new Map();
-          for (const ch of channels) merged.set(ch.channelId, ch);
-          for (const ch of enterpriseChannels) if (!merged.has(ch.channelId)) merged.set(ch.channelId, ch);
-          channels = Array.from(merged.values());
-        }
+        const list = await channelMonitoring.getMonitoredChannels(id);
+        for (const ch of list) merged.set(ch.channelId, ch);
       } catch (e) {
-        console.log('Error loading enterprise-scoped monitors (non-fatal):', e.message);
+        console.log('Failed to load monitors from', id, e.message);
       }
     }
+    const channels = Array.from(merged.values());
     console.log('Found monitored channels (merged):', channels.length);
 
     await client.views.open({
@@ -4312,10 +4324,26 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
       // If launched from the Manage modal, refresh it
       const rootViewId = body.view?.root_view_id;
       if (rootViewId) {
-        const updatedChannels = await channelMonitoring.getMonitoredChannels(teamId);
+        // Union read across plausible scopes so legacy entries also appear
+        const idsToCheck = new Set([
+          teamId,
+          context?.teamId,
+          body?.user?.team_id,
+          context?.isEnterpriseInstall && context?.enterpriseId ? context.enterpriseId : null,
+        ].filter(Boolean));
+        const merged = new Map();
+        for (const id of idsToCheck) {
+          try {
+            const list = await channelMonitoring.getMonitoredChannels(id);
+            for (const ch of list) merged.set(ch.channelId, ch);
+          } catch (e) {
+            console.log('Failed to load monitors from', id, e.message);
+          }
+        }
+        const channels = Array.from(merged.values());
         await client.views.update({
           view_id: rootViewId,
-          view: channelMonitoring.manageMonitoredChannelsModal(updatedChannels)
+          view: channelMonitoring.manageMonitoredChannelsModal(channels)
         });
       }
     } else {
