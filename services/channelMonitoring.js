@@ -50,6 +50,7 @@ async function addMonitoredChannel(teamId, channelData) {
       responseType: channelData.responseType || 'analytical',
       enabled: channelData.enabled !== false,
       autoCreateJiraTickets: channelData.autoCreateJiraTickets || false,
+      keyphraseOnly: channelData.keyphraseOnly || false,
       addedAt: new Date().toISOString(),
       addedBy: channelData.addedBy,
     };
@@ -298,6 +299,27 @@ function addMonitoredChannelModal() {
         },
       },
       {
+        type: 'section',
+        block_id: 'keyphrase_only',
+        text: {
+          type: 'mrkdwn',
+          text: '*Respond only to key-phrase triggers*',
+        },
+        accessory: {
+          type: 'checkboxes',
+          action_id: 'keyphrase_only_input',
+          options: [
+            {
+              text: {
+                type: 'plain_text',
+                text: 'Only respond when a key-phrase matches',
+              },
+              value: 'enabled',
+            },
+          ],
+        },
+      },
+      {
         type: 'context',
         elements: [
           {
@@ -348,6 +370,7 @@ function manageMonitoredChannelsModal(channels) {
             `${statusEmoji} *${channelMention}*\n` +
             `Response Type: *${channel.responseType}*\n` +
             `Auto-Jira: ${channel.autoCreateJiraTickets ? 'Enabled' : 'Disabled'} ${jiraEmoji}\n` +
+            `Mode: ${channel.keyphraseOnly ? 'Key-phrases only' : 'AI + key-phrases'}\n` +
             `Added: ${new Date(channel.addedAt).toLocaleDateString()}`,
         },
         accessory: {
@@ -501,6 +524,38 @@ function editMonitoredChannelModal(channel) {
               text: {
                 type: 'plain_text',
                 text: 'Create Jira ticket after 1st bot response',
+              },
+              value: 'enabled',
+            },
+          ],
+        },
+      },
+      {
+        type: 'section',
+        block_id: 'keyphrase_only',
+        text: {
+          type: 'mrkdwn',
+          text: '*Respond only to key-phrase triggers*',
+        },
+        accessory: {
+          type: 'checkboxes',
+          action_id: 'keyphrase_only_input',
+          initial_options: channel.keyphraseOnly
+            ? [
+                {
+                  text: {
+                    type: 'plain_text',
+                    text: 'Only respond when a key-phrase matches',
+                  },
+                  value: 'enabled',
+                },
+              ]
+            : [],
+          options: [
+            {
+              text: {
+                type: 'plain_text',
+                text: 'Only respond when a key-phrase matches',
               },
               value: 'enabled',
             },

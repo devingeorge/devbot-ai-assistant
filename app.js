@@ -1461,6 +1461,42 @@ app.event('message', async ({ event, say, client, context }) => {
           responseType: monitoredChannel.responseType
         });
 
+        // Attempt key-phrase triggers first (with optional mention and monitored-only gating)
+        let keyphraseTriggered = false;
+        try {
+          const allResponses = await redisService.getAllKeyPhraseResponses(team);
+          const enabled = allResponses.filter(r => r && r.enabled !== false);
+          const textLower = (event.text || '').toLowerCase();
+          const isMentioned = (event.text || '').includes(`<@${context.botUserId}>`);
+
+          for (const r of enabled) {
+            if (r.onlyMonitoredChannels && !monitoredChannel) continue;
+            if (r.mentionRequired && !isMentioned) continue;
+            const trig = (r.triggerPhrase || '').toLowerCase();
+            if (!trig) continue;
+            const matches = textLower === trig || (trig.endsWith('*') && textLower.startsWith(trig.slice(0, -1)));
+            if (!matches) continue;
+
+            // Anti-dup for 10 seconds per channel+response
+            const lockKey = `kp_trigger:${team}:${channel}:${r.id}`;
+            const exists = await redisService.get(lockKey);
+            if (exists) continue;
+            await redisService.set(lockKey, '1', 10);
+
+            await sendKeyPhraseResponse(client, channel, r.responseText, null, r.thinkingDelay || 0);
+            keyphraseTriggered = true;
+            break;
+          }
+        } catch (e) {
+          console.log('Key-phrase channel trigger error:', e.message);
+        }
+
+        if (keyphraseTriggered) return;
+        if (monitoredChannel.keyphraseOnly) {
+          console.log('Channel is key-phrases only; skipping AI auto-response');
+          return;
+        }
+
         // Build system prompt based on response type
         let systemPrompt;
         switch (monitoredChannel.responseType) {
@@ -2808,6 +2844,22 @@ app.action('add_key_phrase_response_button', async ({ ack, body, client }) => {
             }
           },
           {
+            type: 'section',
+            block_id: 'kp_flags',
+            text: {
+              type: 'mrkdwn',
+              text: '*Trigger Options*'
+            },
+            accessory: {
+              type: 'checkboxes',
+              action_id: 'kp_flags_input',
+              options: [
+                { text: { type: 'plain_text', text: 'Limit to monitored channels' }, value: 'monitored_only' },
+                { text: { type: 'plain_text', text: 'Require @mention of the bot' }, value: 'mention_required' }
+              ]
+            }
+          },
+          {
             type: 'context',
             elements: [
               {
@@ -2841,6 +2893,9 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
     const triggerPhrase = values.trigger_phrase.trigger_text.value;
     const responseText = values.response_text.response_text.value;
     const thinkingDelay = values.thinking_delay?.thinking_delay?.value || '0';
+    const kpFlags = values.kp_flags?.kp_flags_input?.selected_options || [];
+    const onlyMonitoredChannels = kpFlags.some(o => o.value === 'monitored_only');
+    const mentionRequired = kpFlags.some(o => o.value === 'mention_required');
     
     if (!triggerPhrase || !responseText) {
       await client.chat.postMessage({
@@ -2854,7 +2909,9 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
       triggerPhrase: triggerPhrase.trim(),
       responseText: responseText.trim(),
       thinkingDelay: parseInt(thinkingDelay) || 0,
-      enabled: true
+      enabled: true,
+      onlyMonitoredChannels,
+      mentionRequired
     };
     
     const responseId = await redisService.saveKeyPhraseResponse(teamId, responseData);
@@ -2943,7 +3000,14 @@ async function getViewKeyPhraseResponsesBlocks(teamId, context = null, body = nu
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `${statusIcon} *${response.triggerPhrase}* (${statusText})\n_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`
+          text: (() => {
+            const preview = `_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`;
+            const tags = [];
+            if (response.onlyMonitoredChannels) tags.push('monitored-only');
+            if (response.mentionRequired) tags.push('requires @mention');
+            const tagLine = tags.length ? `\n_${tags.join(' • ')}_` : '';
+            return `${statusIcon} *${response.triggerPhrase}* (${statusText})\n${preview}${tagLine}`;
+          })()
         }
       });
       
@@ -3162,6 +3226,26 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action, context }
               type: 'plain_text',
               text: 'How long to show "Thinking... 🤔" before sending the response (0-10 seconds)'
             }
+          },
+          {
+            type: 'section',
+            block_id: 'kp_flags',
+            text: {
+              type: 'mrkdwn',
+              text: '*Trigger Options*'
+            },
+            accessory: {
+              type: 'checkboxes',
+              action_id: 'kp_flags_input',
+              initial_options: [
+                ...(response.onlyMonitoredChannels ? [{ text: { type: 'plain_text', text: 'Limit to monitored channels' }, value: 'monitored_only' }] : []),
+                ...(response.mentionRequired ? [{ text: { type: 'plain_text', text: 'Require @mention of the bot' }, value: 'mention_required' }] : []),
+              ],
+              options: [
+                { text: { type: 'plain_text', text: 'Limit to monitored channels' }, value: 'monitored_only' },
+                { text: { type: 'plain_text', text: 'Require @mention of the bot' }, value: 'mention_required' }
+              ]
+            }
           }
         ]
       }
@@ -3184,6 +3268,9 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
     const triggerPhrase = values.trigger_phrase.trigger_text.value;
     const responseText = values.response_text.response_text.value;
     const thinkingDelay = values.thinking_delay?.thinking_delay?.value || '0';
+    const kpFlags = values.kp_flags?.kp_flags_input?.selected_options || [];
+    const onlyMonitoredChannels = kpFlags.some(o => o.value === 'monitored_only');
+    const mentionRequired = kpFlags.some(o => o.value === 'mention_required');
     
     if (!triggerPhrase || !responseText) {
       await client.chat.postMessage({
@@ -3196,7 +3283,9 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
     const updates = {
       triggerPhrase: triggerPhrase.trim(),
       responseText: responseText.trim(),
-      thinkingDelay: parseInt(thinkingDelay) || 0
+      thinkingDelay: parseInt(thinkingDelay) || 0,
+      onlyMonitoredChannels,
+      mentionRequired
     };
     
     const success = await redisService.updateKeyPhraseResponse(storageTeamId, responseId, updates);
@@ -4275,6 +4364,7 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
     const channelId = values.channel_select?.channel_input?.selected_channel;
     const responseType = values.response_type?.response_type_input?.selected_option?.value;
     const autoJiraTickets = values.auto_jira_tickets?.auto_jira_input?.selected_options?.some(option => option.value === 'enabled') || false;
+    const keyphraseOnly = values.keyphrase_only?.keyphrase_only_input?.selected_options?.some(option => option.value === 'enabled') || false;
 
     if (!channelId || !responseType) {
       await client.chat.postEphemeral({
@@ -4312,6 +4402,7 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
       responseType,
       enabled: true,
       autoCreateJiraTickets: autoJiraTickets,
+      keyphraseOnly,
       addedBy: userId
     });
 
@@ -4373,6 +4464,7 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
     const values = view.state.values;
     const responseType = values.response_type?.response_type_input?.selected_option?.value;
     const autoJiraTickets = values.auto_jira_tickets?.auto_jira_input?.selected_options?.some(option => option.value === 'enabled') || false;
+    const keyphraseOnly = values.keyphrase_only?.keyphrase_only_input?.selected_options?.some(option => option.value === 'enabled') || false;
 
     if (!responseType) {
       await client.chat.postEphemeral({
@@ -4385,7 +4477,8 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
 
     const result = await channelMonitoring.updateMonitoredChannel(teamId, channelId, {
       responseType,
-      autoCreateJiraTickets: autoJiraTickets
+      autoCreateJiraTickets: autoJiraTickets,
+      keyphraseOnly
     });
 
     if (result.success) {
