@@ -4302,10 +4302,19 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
         const channels = await channelMonitoring.getMonitoredChannels(teamId);
         const channelToEdit = channels.find(c => c.channelId === targetId);
         if (channelToEdit) {
-          await client.views.open({
-            trigger_id: body.trigger_id,
-            view: channelMonitoring.editMonitoredChannelModal(channelToEdit)
-          });
+          const view = channelMonitoring.editMonitoredChannelModal(channelToEdit);
+          const isModal = body?.view?.type === 'modal';
+          if (isModal) {
+            await client.views.push({
+              trigger_id: body.trigger_id,
+              view
+            });
+          } else {
+            await client.views.open({
+              trigger_id: body.trigger_id,
+              view
+            });
+          }
         }
         break;
       }
