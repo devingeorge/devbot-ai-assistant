@@ -210,6 +210,12 @@ async function getThreadResponseCount(teamId, channelId, threadTs) {
  */
 function addMonitoredChannelModal() {
   const responseTypes = getResponseTypes();
+  // Build option arrays once for consistent initial options when extended later
+  const rtOptions = responseTypes.map((type) => ({
+    text: { type: 'plain_text', text: type.label },
+    value: type.value,
+    description: { type: 'plain_text', text: type.description },
+  }));
 
   return {
     type: 'modal',
@@ -264,17 +270,7 @@ function addMonitoredChannelModal() {
             text: 'Select response type',
           },
           action_id: 'response_type_input',
-          options: responseTypes.map((type) => ({
-            text: {
-              type: 'plain_text',
-              text: type.label,
-            },
-            value: type.value,
-            description: {
-              type: 'plain_text',
-              text: type.description,
-            },
-          })),
+          options: rtOptions,
         },
       },
       {
@@ -439,6 +435,21 @@ function manageMonitoredChannelsModal(channels) {
  */
 function editMonitoredChannelModal(channel) {
   const responseTypes = getResponseTypes();
+  // Build option arrays once so initial selections reference the same objects
+  const rtOptions = responseTypes.map((type) => ({
+    text: { type: 'plain_text', text: type.label },
+    value: type.value,
+    description: { type: 'plain_text', text: type.description },
+  }));
+  const rtInitial = rtOptions.find((o) => o.value === channel.responseType) || rtOptions[0];
+  const jiraOptions = [
+    { text: { type: 'plain_text', text: 'Create Jira ticket after 1st bot response' }, value: 'enabled' },
+  ];
+  const jiraInitial = channel.autoCreateJiraTickets ? [jiraOptions[0]] : [];
+  const kpOnlyOptions = [
+    { text: { type: 'plain_text', text: 'Only respond when a key-phrase matches' }, value: 'enabled' },
+  ];
+  const kpOnlyInitial = channel.keyphraseOnly ? [kpOnlyOptions[0]] : [];
 
   return {
     type: 'modal',
@@ -478,24 +489,8 @@ function editMonitoredChannelModal(channel) {
             text: 'Select response type',
           },
           action_id: 'response_type_input',
-          initial_option: {
-            text: {
-              type: 'plain_text',
-              text: responseTypes.find((type) => type.value === channel.responseType)?.label || 'Analytical',
-            },
-            value: channel.responseType,
-          },
-          options: responseTypes.map((type) => ({
-            text: {
-              type: 'plain_text',
-              text: type.label,
-            },
-            value: type.value,
-            description: {
-              type: 'plain_text',
-              text: type.description,
-            },
-          })),
+          initial_option: rtInitial,
+          options: rtOptions,
         },
       },
       {
@@ -508,26 +503,8 @@ function editMonitoredChannelModal(channel) {
         accessory: {
           type: 'checkboxes',
           action_id: 'auto_jira_input',
-          initial_options: channel.autoCreateJiraTickets
-            ? [
-                {
-                  text: {
-                    type: 'plain_text',
-                    text: 'Create Jira ticket after 1st bot response',
-                  },
-                  value: 'enabled',
-                },
-              ]
-            : [],
-          options: [
-            {
-              text: {
-                type: 'plain_text',
-                text: 'Create Jira ticket after 1st bot response',
-              },
-              value: 'enabled',
-            },
-          ],
+          initial_options: jiraInitial,
+          options: jiraOptions,
         },
       },
       {
@@ -540,26 +517,8 @@ function editMonitoredChannelModal(channel) {
         accessory: {
           type: 'checkboxes',
           action_id: 'keyphrase_only_input',
-          initial_options: channel.keyphraseOnly
-            ? [
-                {
-                  text: {
-                    type: 'plain_text',
-                    text: 'Only respond when a key-phrase matches',
-                  },
-                  value: 'enabled',
-                },
-              ]
-            : [],
-          options: [
-            {
-              text: {
-                type: 'plain_text',
-                text: 'Only respond when a key-phrase matches',
-              },
-              value: 'enabled',
-            },
-          ],
+          initial_options: kpOnlyInitial,
+          options: kpOnlyOptions,
         },
       },
     ],

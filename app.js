@@ -1470,7 +1470,9 @@ app.event('message', async ({ event, say, client, context }) => {
           const isMentioned = (event.text || '').includes(`<@${context.botUserId}>`);
 
           for (const r of enabled) {
-            if (r.onlyMonitoredChannels && !monitoredChannel) continue;
+            // New semantics: key-phrases fire in channels only if explicitly allowed
+            const allowedInChannels = Boolean(r.allowInMonitoredChannels || r.onlyMonitoredChannels);
+            if (!allowedInChannels) continue;
             if (r.mentionRequired && !isMentioned) continue;
             const trig = (r.triggerPhrase || '').toLowerCase();
             if (!trig) continue;
@@ -2854,7 +2856,7 @@ app.action('add_key_phrase_response_button', async ({ ack, body, client }) => {
               type: 'checkboxes',
               action_id: 'kp_flags_input',
               options: [
-                { text: { type: 'plain_text', text: 'Limit to monitored channels' }, value: 'monitored_only' },
+                { text: { type: 'plain_text', text: 'Allow in monitored channels' }, value: 'allow_in_monitored' },
                 { text: { type: 'plain_text', text: 'Require @mention of the bot' }, value: 'mention_required' }
               ]
             }
@@ -2894,7 +2896,7 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
     const responseText = values.response_text.response_text.value;
     const thinkingDelay = values.thinking_delay?.thinking_delay?.value || '0';
     const kpFlags = values.kp_flags?.kp_flags_input?.selected_options || [];
-    const onlyMonitoredChannels = kpFlags.some(o => o.value === 'monitored_only');
+    const allowInMonitoredChannels = kpFlags.some(o => o.value === 'allow_in_monitored');
     const mentionRequired = kpFlags.some(o => o.value === 'mention_required');
     
     if (!triggerPhrase || !responseText) {
@@ -2910,8 +2912,10 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
       responseText: responseText.trim(),
       thinkingDelay: parseInt(thinkingDelay) || 0,
       enabled: true,
-      onlyMonitoredChannels,
-      mentionRequired
+      allowInMonitoredChannels,
+      mentionRequired,
+      // legacy mirror for backward-compat
+      onlyMonitoredChannels: allowInMonitoredChannels
     };
     
     const responseId = await redisService.saveKeyPhraseResponse(teamId, responseData);
@@ -3003,7 +3007,7 @@ async function getViewKeyPhraseResponsesBlocks(teamId, context = null, body = nu
           text: (() => {
             const preview = `_${response.responseText.substring(0, 100)}${response.responseText.length > 100 ? '...' : ''}_`;
             const tags = [];
-            if (response.onlyMonitoredChannels) tags.push('monitored-only');
+            if (response.allowInMonitoredChannels || response.onlyMonitoredChannels) tags.push('allowed in monitored channels');
             if (response.mentionRequired) tags.push('requires @mention');
             const tagLine = tags.length ? `\n_${tags.join(' • ')}_` : '';
             return `${statusIcon} *${response.triggerPhrase}* (${statusText})\n${preview}${tagLine}`;
@@ -3234,18 +3238,22 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action, context }
               type: 'mrkdwn',
               text: '*Trigger Options*'
             },
-            accessory: {
-              type: 'checkboxes',
-              action_id: 'kp_flags_input',
-              initial_options: [
-                ...(response.onlyMonitoredChannels ? [{ text: { type: 'plain_text', text: 'Limit to monitored channels' }, value: 'monitored_only' }] : []),
-                ...(response.mentionRequired ? [{ text: { type: 'plain_text', text: 'Require @mention of the bot' }, value: 'mention_required' }] : []),
-              ],
-              options: [
-                { text: { type: 'plain_text', text: 'Limit to monitored channels' }, value: 'monitored_only' },
+            accessory: (() => {
+              const options = [
+                { text: { type: 'plain_text', text: 'Allow in monitored channels' }, value: 'allow_in_monitored' },
                 { text: { type: 'plain_text', text: 'Require @mention of the bot' }, value: 'mention_required' }
-              ]
-            }
+              ];
+              const initialValues = [];
+              if (response.allowInMonitoredChannels || response.onlyMonitoredChannels) initialValues.push('allow_in_monitored');
+              if (response.mentionRequired) initialValues.push('mention_required');
+              const initial_options = options.filter(o => initialValues.includes(o.value));
+              return {
+                type: 'checkboxes',
+                action_id: 'kp_flags_input',
+                options,
+                initial_options
+              };
+            })()
           }
         ]
       }
@@ -3269,7 +3277,7 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
     const responseText = values.response_text.response_text.value;
     const thinkingDelay = values.thinking_delay?.thinking_delay?.value || '0';
     const kpFlags = values.kp_flags?.kp_flags_input?.selected_options || [];
-    const onlyMonitoredChannels = kpFlags.some(o => o.value === 'monitored_only');
+    const allowInMonitoredChannels = kpFlags.some(o => o.value === 'allow_in_monitored');
     const mentionRequired = kpFlags.some(o => o.value === 'mention_required');
     
     if (!triggerPhrase || !responseText) {
@@ -3284,8 +3292,10 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
       triggerPhrase: triggerPhrase.trim(),
       responseText: responseText.trim(),
       thinkingDelay: parseInt(thinkingDelay) || 0,
-      onlyMonitoredChannels,
-      mentionRequired
+      allowInMonitoredChannels,
+      mentionRequired,
+      // legacy mirror
+      onlyMonitoredChannels: allowInMonitoredChannels
     };
     
     const success = await redisService.updateKeyPhraseResponse(storageTeamId, responseId, updates);
@@ -4519,6 +4529,16 @@ app.action('response_type_input', async ({ ack }) => {
 app.action('auto_jira_input', async ({ ack }) => {
   await ack();
   // No additional action needed - just acknowledge the selection
+});
+
+// Handle key-phrase trigger flags in modals
+app.action('kp_flags_input', async ({ ack }) => {
+  await ack();
+});
+
+// Handle keyphrase-only checkbox in monitored channel modals
+app.action('keyphrase_only_input', async ({ ack }) => {
+  await ack();
 });
 
 
