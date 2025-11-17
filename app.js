@@ -4362,33 +4362,62 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
       }
 
       case 'toggle': {
-        const toggleChannels = await channelMonitoring.getMonitoredChannels(teamId);
-        const toggleChannel = toggleChannels.find(c => c.channelId === targetId);
-        if (toggleChannel) {
-          const result = await channelMonitoring.updateMonitoredChannel(teamId, targetId, {
-            enabled: !toggleChannel.enabled
-          });
-          if (result.success) {
-            const status = result.channel.enabled ? 'enabled' : 'disabled';
-            await client.chat.postEphemeral({
-              channel: userId,
-              user: userId,
-              text: `✅ Channel monitoring ${status} successfully!`
-            });
+        // Locate storage scope (team or enterprise) that holds this channel
+        const candidateIds = [
+          teamId,
+          (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
+        ].filter(Boolean);
+        let storageId = null;
+        let toggleChannel = null;
+        for (const id of candidateIds) {
+          const list = await channelMonitoring.getMonitoredChannels(id);
+          const found = list.find(c => c.channelId === targetId);
+          if (found) { storageId = id; toggleChannel = found; break; }
+        }
+        if (!storageId || !toggleChannel) break;
 
-            // Refresh the modal
-            const updatedChannels = await channelMonitoring.getMonitoredChannels(teamId);
-            await client.views.update({
-              view_id: body.view?.id,
-              view: channelMonitoring.manageMonitoredChannelsModal(updatedChannels)
-            });
+        const result = await channelMonitoring.updateMonitoredChannel(storageId, targetId, {
+          enabled: !toggleChannel.enabled
+        });
+        if (result.success) {
+          const status = result.channel.enabled ? 'enabled' : 'disabled';
+          await client.chat.postEphemeral({
+            channel: userId,
+            user: userId,
+            text: `✅ Channel monitoring ${status} successfully!`
+          });
+
+          // Refresh the modal with union across scopes
+          const merged = new Map();
+          for (const id of candidateIds) {
+            try {
+              const list = await channelMonitoring.getMonitoredChannels(id);
+              for (const ch of list) merged.set(ch.channelId, ch);
+            } catch {}
           }
+          const updatedChannels = Array.from(merged.values());
+          await client.views.update({
+            view_id: body.view?.id,
+            view: channelMonitoring.manageMonitoredChannelsModal(updatedChannels)
+          });
         }
         break;
       }
 
       case 'remove': {
-        const deleteResult = await channelMonitoring.removeMonitoredChannel(teamId, targetId);
+        // Locate storage scope (team or enterprise) that holds this channel
+        const candidateIds = [
+          teamId,
+          (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
+        ].filter(Boolean);
+        let storageId = null;
+        for (const id of candidateIds) {
+          const list = await channelMonitoring.getMonitoredChannels(id);
+          if (list.some(c => c.channelId === targetId)) { storageId = id; break; }
+        }
+        if (!storageId) break;
+
+        const deleteResult = await channelMonitoring.removeMonitoredChannel(storageId, targetId);
         if (deleteResult.success) {
           await client.chat.postEphemeral({
             channel: userId,
@@ -4396,8 +4425,15 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
             text: '✅ Channel removed from monitoring successfully!'
           });
 
-          // Refresh the modal
-          const updatedChannels = await channelMonitoring.getMonitoredChannels(teamId);
+          // Refresh the modal with union across scopes
+          const merged = new Map();
+          for (const id of candidateIds) {
+            try {
+              const list = await channelMonitoring.getMonitoredChannels(id);
+              for (const ch of list) merged.set(ch.channelId, ch);
+            } catch {}
+          }
+          const updatedChannels = Array.from(merged.values());
           await client.views.update({
             view_id: body.view?.id,
             view: channelMonitoring.manageMonitoredChannelsModal(updatedChannels)
@@ -4529,7 +4565,6 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
   await ack();
 
   try {
-    // For enterprise installs, use the team ID from the event, not context.teamId (which is enterprise ID)
     const teamId = body.team?.id || context.teamId;
     const userId = body.user?.id;
 
@@ -4550,7 +4585,19 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
       return;
     }
 
-    const result = await channelMonitoring.updateMonitoredChannel(teamId, channelId, {
+    // Determine storage scope holding this channel (team or enterprise)
+    const candidateIds = [
+      teamId,
+      (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
+    ].filter(Boolean);
+    let storageId = null;
+    for (const id of candidateIds) {
+      const list = await channelMonitoring.getMonitoredChannels(id);
+      if (list.some(c => c.channelId === channelId)) { storageId = id; break; }
+    }
+    if (!storageId) storageId = teamId;
+
+    const result = await channelMonitoring.updateMonitoredChannel(storageId, channelId, {
       responseType,
       autoCreateJiraTickets: autoJiraTickets,
       keyphraseOnly
@@ -4562,6 +4609,20 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
         user: userId,
         text: `✅ Channel settings updated successfully!\nResponse Type: ${responseType}\nAuto-Jira Tickets: ${autoJiraTickets ? 'Enabled' : 'Disabled'}`
       });
+
+      // Refresh manage modal with union across scopes
+      const merged = new Map();
+      for (const id of candidateIds) {
+        try {
+          const list = await channelMonitoring.getMonitoredChannels(id);
+          for (const ch of list) merged.set(ch.channelId, ch);
+        } catch {}
+      }
+      const channels = Array.from(merged.values());
+      await client.views.update({
+        view_id: body.view?.root_view_id || body.view?.id,
+        view: channelMonitoring.manageMonitoredChannelsModal(channels)
+      });
     } else {
       await client.chat.postEphemeral({
         channel: userId,
@@ -4569,7 +4630,7 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
         text: `❌ Failed to update channel: ${result.error}`
       });
     }
-      } catch (error) {
+  } catch (error) {
     console.error('Edit monitored channel submission error:', error);
   }
 });
