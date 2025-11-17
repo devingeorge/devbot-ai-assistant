@@ -1456,7 +1456,12 @@ app.event('message', async ({ event, say, client, context }) => {
             console.log('Enterprise-scope monitored check failed:', e.message);
           }
         }
-        console.log('Channel monitoring result:', monitoredChannel);
+        console.log('Channel monitoring result:', {
+          found: !!monitoredChannel,
+          scope: monitoredChannel ? (monitoredChannel.teamScope || (context?.enterpriseId && 'enterprise') || 'team') : 'none',
+          keyphraseOnly: monitoredChannel?.keyphraseOnly,
+          responseType: monitoredChannel?.responseType
+        });
         if (!monitoredChannel) {
           console.log('Channel is not being monitored, skipping');
           return; // Channel is not being monitored
@@ -1481,6 +1486,7 @@ app.event('message', async ({ event, say, client, context }) => {
           for (const id of idsToCheck) {
             try {
               const list = await redisService.getAllKeyPhraseResponses(id);
+              console.log('Key-phrases loaded for id:', id, 'count:', Array.isArray(list) ? list.length : 0);
               allResponses.push(...list);
             } catch (e) {
               console.log('Failed to load key-phrases from', id, e.message);
@@ -1507,6 +1513,13 @@ app.event('message', async ({ event, say, client, context }) => {
             await redisService.set(lockKey, '1', 10);
 
             const threadTs = (r.replyInThread === false) ? null : event.ts;
+            console.log('Key-phrase match firing:', {
+              trigger: r.triggerPhrase,
+              allowInMonitoredChannels: r.allowInMonitoredChannels,
+              mentionRequired: r.mentionRequired,
+              replyInThread: r.replyInThread !== false,
+              threadTs
+            });
             await sendKeyPhraseResponse(client, channel, r.responseText, threadTs, r.thinkingDelay || 0);
             keyphraseTriggered = true;
             break;
@@ -1517,7 +1530,7 @@ app.event('message', async ({ event, say, client, context }) => {
 
         if (keyphraseTriggered) return;
         if (monitoredChannel.keyphraseOnly) {
-          console.log('Channel is key-phrases only; skipping AI auto-response');
+          console.log('Channel is key-phrases only; skipping AI auto-response (no key-phrase matched)');
           return;
         }
 
@@ -4308,11 +4321,13 @@ app.action('manage_monitored_channels', async ({ ack, body, client, context }) =
       body?.user?.team_id,
       context?.isEnterpriseInstall && context?.enterpriseId ? context.enterpriseId : null,
     ].filter(Boolean));
+    console.log('Manage channels - idsToCheck for aggregation:', Array.from(idsToCheck));
 
     const merged = new Map();
     for (const id of idsToCheck) {
       try {
         const list = await channelMonitoring.getMonitoredChannels(id);
+        console.log('Manage channels - fetched monitors for id:', id, 'count:', Array.isArray(list) ? list.length : 0);
         for (const ch of list) merged.set(ch.channelId, ch);
       } catch (e) {
         console.log('Failed to load monitors from', id, e.message);
@@ -4375,6 +4390,7 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
           teamId,
           (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
         ].filter(Boolean);
+        console.log('Toggle monitor - candidateIds:', candidateIds, 'targetId:', targetId);
         let storageId = null;
         let toggleChannel = null;
         for (const id of candidateIds) {
@@ -4382,11 +4398,13 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
           const found = list.find(c => c.channelId === targetId);
           if (found) { storageId = id; toggleChannel = found; break; }
         }
+        console.log('Toggle monitor - resolved storageId:', storageId, 'foundChannel:', !!toggleChannel);
         if (!storageId || !toggleChannel) break;
 
         const result = await channelMonitoring.updateMonitoredChannel(storageId, targetId, {
           enabled: !toggleChannel.enabled
         });
+        console.log('Toggle monitor - update result:', result?.success, 'newEnabled:', result?.channel?.enabled);
         if (result.success) {
           const status = result.channel.enabled ? 'enabled' : 'disabled';
           await client.chat.postEphemeral({
@@ -4418,14 +4436,17 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
           teamId,
           (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
         ].filter(Boolean);
+        console.log('Remove monitor - candidateIds:', candidateIds, 'targetId:', targetId);
         let storageId = null;
         for (const id of candidateIds) {
           const list = await channelMonitoring.getMonitoredChannels(id);
           if (list.some(c => c.channelId === targetId)) { storageId = id; break; }
         }
+        console.log('Remove monitor - resolved storageId:', storageId);
         if (!storageId) break;
 
         const deleteResult = await channelMonitoring.removeMonitoredChannel(storageId, targetId);
+        console.log('Remove monitor - delete result:', deleteResult?.success);
         if (deleteResult.success) {
           await client.chat.postEphemeral({
             channel: userId,
@@ -4598,18 +4619,22 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
       teamId,
       (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
     ].filter(Boolean);
+    console.log('Edit monitor submit - candidateIds:', candidateIds, 'channelId:', channelId);
     let storageId = null;
     for (const id of candidateIds) {
       const list = await channelMonitoring.getMonitoredChannels(id);
+       console.log('Edit monitor submit - fetched list for id:', id, 'count:', Array.isArray(list) ? list.length : 0);
       if (list.some(c => c.channelId === channelId)) { storageId = id; break; }
     }
     if (!storageId) storageId = teamId;
+    console.log('Edit monitor submit - resolved storageId:', storageId);
 
     const result = await channelMonitoring.updateMonitoredChannel(storageId, channelId, {
       responseType,
       autoCreateJiraTickets: autoJiraTickets,
       keyphraseOnly
     });
+    console.log('Edit monitor submit - update result:', result?.success, 'new state:', result?.channel);
 
     if (result.success) {
       await client.chat.postEphemeral({
@@ -4623,6 +4648,7 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
       for (const id of candidateIds) {
         try {
           const list = await channelMonitoring.getMonitoredChannels(id);
+          console.log('Edit monitor submit - refresh list for id:', id, 'count:', Array.isArray(list) ? list.length : 0);
           for (const ch of list) merged.set(ch.channelId, ch);
         } catch {}
       }
