@@ -1445,9 +1445,17 @@ app.event('message', async ({ event, say, client, context }) => {
           textPreview: userText.substring(0, 50)
         });
 
-        // Check if this channel is being monitored
+        // Check if this channel is being monitored (team scope first)
         console.log('Checking if channel is monitored:', { team, channel });
-        const monitoredChannel = await channelMonitoring.isChannelMonitored(team, channel);
+        let monitoredChannel = await channelMonitoring.isChannelMonitored(team, channel);
+        // Enterprise Grid fallback: some records may be stored under enterpriseId
+        if (!monitoredChannel && context?.isEnterpriseInstall && context?.enterpriseId) {
+          try {
+            monitoredChannel = await channelMonitoring.isChannelMonitored(context.enterpriseId, channel);
+          } catch (e) {
+            console.log('Enterprise-scope monitored check failed:', e.message);
+          }
+        }
         console.log('Channel monitoring result:', monitoredChannel);
         if (!monitoredChannel) {
           console.log('Channel is not being monitored, skipping');
