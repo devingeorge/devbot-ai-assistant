@@ -1498,7 +1498,8 @@ app.event('message', async ({ event, say, client, context }) => {
             if (exists) continue;
             await redisService.set(lockKey, '1', 10);
 
-            await sendKeyPhraseResponse(client, channel, r.responseText, null, r.thinkingDelay || 0);
+            const threadTs = (r.replyInThread === false) ? null : event.ts;
+            await sendKeyPhraseResponse(client, channel, r.responseText, threadTs, r.thinkingDelay || 0);
             keyphraseTriggered = true;
             break;
           }
@@ -2875,6 +2876,23 @@ app.action('add_key_phrase_response_button', async ({ ack, body, client }) => {
             }
           },
           {
+            type: 'section',
+            block_id: 'kp_reply_location',
+            text: { type: 'mrkdwn', text: '*Reply location in channels*' },
+            accessory: {
+              type: 'radio_buttons',
+              action_id: 'kp_reply_location_input',
+              initial_option: {
+                text: { type: 'plain_text', text: 'Thread (recommended)' },
+                value: 'thread'
+              },
+              options: [
+                { text: { type: 'plain_text', text: 'Thread (recommended)' }, value: 'thread' },
+                { text: { type: 'plain_text', text: 'Top-level message' }, value: 'channel' }
+              ]
+            }
+          },
+          {
             type: 'context',
             elements: [
               {
@@ -2911,6 +2929,8 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
     const kpFlags = values.kp_flags?.kp_flags_input?.selected_options || [];
     const allowInMonitoredChannels = kpFlags.some(o => o.value === 'allow_in_monitored');
     const mentionRequired = kpFlags.some(o => o.value === 'mention_required');
+    const replyOption = values.kp_reply_location?.kp_reply_location_input?.selected_option?.value || 'thread';
+    const replyInThread = replyOption !== 'channel';
     
     if (!triggerPhrase || !responseText) {
       await client.chat.postMessage({
@@ -2927,6 +2947,7 @@ app.view('add_key_phrase_response', async ({ ack, body, view, client, context })
       enabled: true,
       allowInMonitoredChannels,
       mentionRequired,
+      replyInThread,
       // legacy mirror for backward-compat
       onlyMonitoredChannels: allowInMonitoredChannels
     };
@@ -3022,6 +3043,7 @@ async function getViewKeyPhraseResponsesBlocks(teamId, context = null, body = nu
             const tags = [];
             if (response.allowInMonitoredChannels || response.onlyMonitoredChannels) tags.push('allowed in monitored channels');
             if (response.mentionRequired) tags.push('requires @mention');
+            if (response.replyInThread === false) tags.push('reply: channel'); else tags.push('reply: thread');
             const tagLine = tags.length ? `\n_${tags.join(' • ')}_` : '';
             return `${statusIcon} *${response.triggerPhrase}* (${statusText})\n${preview}${tagLine}`;
           })()
@@ -3267,6 +3289,25 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action, context }
                 initial_options
               };
             })()
+          },
+          {
+            type: 'section',
+            block_id: 'kp_reply_location',
+            text: { type: 'mrkdwn', text: '*Reply location in channels*' },
+            accessory: (() => {
+              const options = [
+                { text: { type: 'plain_text', text: 'Thread (recommended)' }, value: 'thread' },
+                { text: { type: 'plain_text', text: 'Top-level message' }, value: 'channel' }
+              ];
+              const selected = (response.replyInThread === false) ? 'channel' : 'thread';
+              const initial_option = options.find(o => o.value === selected) || options[0];
+              return {
+                type: 'radio_buttons',
+                action_id: 'kp_reply_location_input',
+                options,
+                initial_option
+              };
+            })()
           }
         ]
       }
@@ -3307,6 +3348,7 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
       thinkingDelay: parseInt(thinkingDelay) || 0,
       allowInMonitoredChannels,
       mentionRequired,
+      replyInThread,
       // legacy mirror
       onlyMonitoredChannels: allowInMonitoredChannels
     };
@@ -4556,6 +4598,11 @@ app.action('auto_jira_input', async ({ ack }) => {
 
 // Handle key-phrase trigger flags in modals
 app.action('kp_flags_input', async ({ ack }) => {
+  await ack();
+});
+
+// Handle key-phrase reply location radio in modals
+app.action('kp_reply_location_input', async ({ ack }) => {
   await ack();
 });
 
