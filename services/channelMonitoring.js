@@ -500,12 +500,10 @@ function editMonitoredChannelModal(channel) {
           type: 'mrkdwn',
           text: '*Auto-Create Jira Tickets*',
         },
-        accessory: {
-          type: 'checkboxes',
-          action_id: 'auto_jira_input',
-          initial_options: jiraInitial,
-          options: jiraOptions,
-        },
+        accessory: Object.assign(
+          { type: 'checkboxes', action_id: 'auto_jira_input', options: jiraOptions },
+          jiraInitial.length ? { initial_options: jiraInitial } : {}
+        ),
       },
       {
         type: 'section',
@@ -514,12 +512,10 @@ function editMonitoredChannelModal(channel) {
           type: 'mrkdwn',
           text: '*Respond only to key-phrase triggers*',
         },
-        accessory: {
-          type: 'checkboxes',
-          action_id: 'keyphrase_only_input',
-          initial_options: kpOnlyInitial,
-          options: kpOnlyOptions,
-        },
+        accessory: Object.assign(
+          { type: 'checkboxes', action_id: 'keyphrase_only_input', options: kpOnlyOptions },
+          kpOnlyInitial.length ? { initial_options: kpOnlyInitial } : {}
+        ),
       },
     ],
   };

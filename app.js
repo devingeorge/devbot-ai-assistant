@@ -1464,7 +1464,20 @@ app.event('message', async ({ event, say, client, context }) => {
         // Attempt key-phrase triggers first (with optional mention and monitored-only gating)
         let keyphraseTriggered = false;
         try {
-          const allResponses = await redisService.getAllKeyPhraseResponses(team);
+          // Load key-phrases from both team and enterprise scopes (for Grid installs)
+          const idsToCheck = new Set([
+            team,
+            context?.isEnterpriseInstall && context?.enterpriseId ? context.enterpriseId : null,
+          ].filter(Boolean));
+          const allResponses = [];
+          for (const id of idsToCheck) {
+            try {
+              const list = await redisService.getAllKeyPhraseResponses(id);
+              allResponses.push(...list);
+            } catch (e) {
+              console.log('Failed to load key-phrases from', id, e.message);
+            }
+          }
           const enabled = allResponses.filter(r => r && r.enabled !== false);
           const textLower = (event.text || '').toLowerCase();
           const isMentioned = (event.text || '').includes(`<@${context.botUserId}>`);
@@ -4424,7 +4437,8 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
       });
       // If launched from the Manage modal, refresh it
       const rootViewId = body.view?.root_view_id;
-      if (rootViewId) {
+      const isModal = body.view?.type === 'modal';
+      if (rootViewId && isModal) {
         // Union read across plausible scopes so legacy entries also appear
         const idsToCheck = new Set([
           teamId,
