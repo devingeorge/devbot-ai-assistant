@@ -3199,140 +3199,160 @@ app.action(/^edit_response_(.+)$/, async ({ ack, body, client, action, context }
       return;
     }
     
-    await client.views.push({
-      trigger_id: body.trigger_id,
-      view: {
-        type: 'modal',
-        callback_id: 'edit_key_phrase_response',
-        title: {
-          type: 'plain_text',
-          text: 'Edit Key-Phrase Response'
-        },
-        submit: {
-          type: 'plain_text',
-          text: 'Update Response'
-        },
-        close: {
-          type: 'plain_text',
-          text: 'Cancel'
-        },
-        private_metadata: responseId,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: 'Edit your key-phrase response:'
-            }
-          },
-          {
-            type: 'input',
-            block_id: 'trigger_phrase',
-            element: {
-              type: 'plain_text_input',
-              action_id: 'trigger_text',
-              placeholder: {
-                type: 'plain_text',
-                text: 'e.g., "how are you" or "hey*" (use * for wildcard)'
-              },
-              max_length: 100,
-              initial_value: response.triggerPhrase
-            },
-            label: {
-              type: 'plain_text',
-              text: 'Trigger Phrase'
-            }
-          },
-          {
-            type: 'input',
-            block_id: 'response_text',
-            element: {
-              type: 'plain_text_input',
-              action_id: 'response_text',
-              multiline: true,
-              placeholder: {
-                type: 'plain_text',
-                text: 'Plain text: "Great! How are you!"\n\nBlock Kit JSON:\n[{"type":"section","text":{"type":"mrkdwn","text":"*Hello!* :wave:"}}]'
-              },
-              max_length: 2000,
-              initial_value: response.responseText
-            },
-            label: {
-              type: 'plain_text',
-              text: 'Response (Plain Text or Block Kit JSON)'
-            }
-          },
-          {
-            type: 'input',
-            block_id: 'thinking_delay',
-            element: {
-              type: 'number_input',
-              action_id: 'thinking_delay',
-              is_decimal_allowed: false,
-              min_value: '0',
-              max_value: '10',
-              placeholder: {
-                type: 'plain_text',
-                text: '0'
-              },
-              initial_value: (response.thinkingDelay || 0).toString()
-            },
-            label: {
-              type: 'plain_text',
-              text: 'Thinking Delay (seconds)'
-            },
-            optional: true,
-            hint: {
-              type: 'plain_text',
-              text: 'How long to show "Thinking... 🤔" before sending the response (0-10 seconds)'
-            }
-          },
-          {
-            type: 'section',
-            block_id: 'kp_flags',
-            text: {
-              type: 'mrkdwn',
-              text: '*Trigger Options*'
-            },
-            accessory: (() => {
-              const options = [
-                { text: { type: 'plain_text', text: 'Allow in monitored channels' }, value: 'allow_in_monitored' },
-                { text: { type: 'plain_text', text: 'Require @mention of the bot' }, value: 'mention_required' }
-              ];
-              const initialValues = [];
-              if (response.allowInMonitoredChannels || response.onlyMonitoredChannels) initialValues.push('allow_in_monitored');
-              if (response.mentionRequired) initialValues.push('mention_required');
-              const initial_options = options.filter(o => initialValues.includes(o.value));
-              return {
-                type: 'checkboxes',
-                action_id: 'kp_flags_input',
-                options,
-                initial_options
-              };
-            })()
-          },
-          {
-            type: 'section',
-            block_id: 'kp_reply_location',
-            text: { type: 'mrkdwn', text: '*Reply location in channels*' },
-            accessory: (() => {
-              const options = [
-                { text: { type: 'plain_text', text: 'Thread (recommended)' }, value: 'thread' },
-                { text: { type: 'plain_text', text: 'Top-level message' }, value: 'channel' }
-              ];
-              const selected = (response.replyInThread === false) ? 'channel' : 'thread';
-              const initial_option = options.find(o => o.value === selected) || options[0];
-              return {
-                type: 'radio_buttons',
-                action_id: 'kp_reply_location_input',
-                options,
-                initial_option
-              };
-            })()
+    const editView = {
+      type: 'modal',
+      callback_id: 'edit_key_phrase_response',
+      title: {
+        type: 'plain_text',
+        text: 'Edit Key-Phrase Response'
+      },
+      submit: {
+        type: 'plain_text',
+        text: 'Update Response'
+      },
+      close: {
+        type: 'plain_text',
+        text: 'Cancel'
+      },
+      private_metadata: responseId,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: 'Edit your key-phrase response:'
           }
-        ]
+        },
+        {
+          type: 'input',
+          block_id: 'trigger_phrase',
+          element: {
+            type: 'plain_text_input',
+            action_id: 'trigger_text',
+            placeholder: {
+              type: 'plain_text',
+              text: 'e.g., "how are you" or "hey*" (use * for wildcard)'
+            },
+            max_length: 100,
+            initial_value: response.triggerPhrase
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Trigger Phrase'
+          }
+        },
+        {
+          type: 'input',
+          block_id: 'response_text',
+          element: {
+            type: 'plain_text_input',
+            action_id: 'response_text',
+            multiline: true,
+            placeholder: {
+              type: 'plain_text',
+              text: 'Plain text: "Great! How are you!"\n\nBlock Kit JSON:\n[{"type":"section","text":{"type":"mrkdwn","text":"*Hello!* :wave:"}}]'
+            },
+            max_length: 2000,
+            initial_value: response.responseText
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Response (Plain Text or Block Kit JSON)'
+          }
+        },
+        {
+          type: 'input',
+          block_id: 'thinking_delay',
+          element: {
+            type: 'number_input',
+            action_id: 'thinking_delay',
+            is_decimal_allowed: false,
+            min_value: '0',
+            max_value: '10',
+            placeholder: {
+              type: 'plain_text',
+              text: '0'
+            },
+            initial_value: (response.thinkingDelay || 0).toString()
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Thinking Delay (seconds)'
+          },
+          optional: true,
+          hint: {
+            type: 'plain_text',
+            text: 'How long to show "Thinking... 🤔" before sending the response (0-10 seconds)'
+          }
+        },
+        {
+          type: 'section',
+          block_id: 'kp_flags',
+          text: {
+            type: 'mrkdwn',
+            text: '*Trigger Options*'
+          },
+          accessory: (() => {
+            const options = [
+              { text: { type: 'plain_text', text: 'Allow in monitored channels' }, value: 'allow_in_monitored' },
+              { text: { type: 'plain_text', text: 'Require @mention of the bot' }, value: 'mention_required' }
+            ];
+            const initialValues = [];
+            if (response.allowInMonitoredChannels || response.onlyMonitoredChannels) initialValues.push('allow_in_monitored');
+            if (response.mentionRequired) initialValues.push('mention_required');
+            const initial_options = options.filter(o => initialValues.includes(o.value));
+            const base = {
+              type: 'checkboxes',
+              action_id: 'kp_flags_input',
+              options
+            };
+            if (initial_options.length) {
+              base.initial_options = initial_options;
+            }
+            return base;
+          })()
+        },
+        {
+          type: 'section',
+          block_id: 'kp_reply_location',
+          text: { type: 'mrkdwn', text: '*Reply location in channels*' },
+          accessory: (() => {
+            const options = [
+              { text: { type: 'plain_text', text: 'Thread (recommended)' }, value: 'thread' },
+              { text: { type: 'plain_text', text: 'Top-level message' }, value: 'channel' }
+            ];
+            const selected = (response.replyInThread === false) ? 'channel' : 'thread';
+            const initial_option = options.find(o => o.value === selected) || options[0];
+            return {
+              type: 'radio_buttons',
+              action_id: 'kp_reply_location_input',
+              options,
+              initial_option
+            };
+          })()
+        }
+      ]
+    };
+    try {
+      await client.views.push({
+        trigger_id: body.trigger_id,
+        view: editView
+      });
+    } catch (err) {
+      console.error('views.push failed, falling back to views.open:', err?.response?.data || err);
+      try {
+        await client.views.open({
+          trigger_id: body.trigger_id,
+          view: editView
+        });
+      } catch (openErr) {
+        console.error('views.open failed for edit response modal:', openErr?.response?.data || openErr);
+        await client.chat.postMessage({
+          channel: body.user.id,
+          text: `❌ Couldn't open edit modal: ${openErr.data?.error || openErr.message}`
+        });
       }
-    });
+    }
   } catch (error) {
     console.error('Error opening edit response modal:', error);
   }
@@ -3354,6 +3374,8 @@ app.view('edit_key_phrase_response', async ({ ack, body, view, client, context }
     const kpFlags = values.kp_flags?.kp_flags_input?.selected_options || [];
     const allowInMonitoredChannels = kpFlags.some(o => o.value === 'allow_in_monitored');
     const mentionRequired = kpFlags.some(o => o.value === 'mention_required');
+    const replyOption = values.kp_reply_location?.kp_reply_location_input?.selected_option?.value || 'thread';
+    const replyInThread = replyOption !== 'channel';
     
     if (!triggerPhrase || !responseText) {
       await client.chat.postMessage({
