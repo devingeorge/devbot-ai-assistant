@@ -4372,8 +4372,8 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
   await ack();
 
   try {
-    // For enterprise installs, use the team ID from the event, not context.teamId (which is enterprise ID)
-    const teamId = body.team?.id || context.teamId;
+    // Resolve workspace scope consistently and build a union like the Manage modal opener
+    const primaryTeamId = getMonitoringTeamId(context, body);
     const userId = body.user?.id;
 
     const selectedValue = action.selected_option?.value;
@@ -4384,10 +4384,23 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
     const actionType = selectedValue.substring(0, firstUnderscore);
     const targetId = selectedValue.substring(firstUnderscore + 1);
 
+    const idsToCheck = Array.from(new Set([
+      primaryTeamId,
+      context?.teamId,
+      body?.user?.team_id,
+      (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
+    ].filter(Boolean)));
+
     switch (actionType) {
       case 'edit': {
-        const channels = await channelMonitoring.getMonitoredChannels(teamId);
-        const channelToEdit = channels.find(c => c.channelId === targetId);
+        let channelToEdit = null;
+        for (const id of idsToCheck) {
+          try {
+            const list = await channelMonitoring.getMonitoredChannels(id);
+            channelToEdit = list.find(c => c.channelId === targetId);
+            if (channelToEdit) break;
+          } catch {}
+        }
         if (channelToEdit) {
           const view = channelMonitoring.editMonitoredChannelModal(channelToEdit);
           const isModal = body?.view?.type === 'modal';
@@ -4407,15 +4420,10 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
       }
 
       case 'toggle': {
-        // Locate storage scope (team or enterprise) that holds this channel
-        const candidateIds = [
-          teamId,
-          (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
-        ].filter(Boolean);
-        console.log('Toggle monitor - candidateIds:', candidateIds, 'targetId:', targetId);
+        console.log('Toggle monitor - idsToCheck:', idsToCheck, 'targetId:', targetId);
         let storageId = null;
         let toggleChannel = null;
-        for (const id of candidateIds) {
+        for (const id of idsToCheck) {
           const list = await channelMonitoring.getMonitoredChannels(id);
           const found = list.find(c => c.channelId === targetId);
           if (found) { storageId = id; toggleChannel = found; break; }
@@ -4437,7 +4445,7 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
 
           // Refresh the modal with union across scopes
           const merged = new Map();
-          for (const id of candidateIds) {
+          for (const id of idsToCheck) {
             try {
               const list = await channelMonitoring.getMonitoredChannels(id);
               for (const ch of list) merged.set(ch.channelId, ch);
@@ -4453,23 +4461,19 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
       }
 
       case 'remove': {
-        // Locate storage scope (team or enterprise) that holds this channel
-        const candidateIds = [
-          teamId,
-          (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
-        ].filter(Boolean);
-        console.log('Remove monitor - candidateIds:', candidateIds, 'targetId:', targetId);
-        let storageId = null;
-        for (const id of candidateIds) {
-          const list = await channelMonitoring.getMonitoredChannels(id);
-          if (list.some(c => c.channelId === targetId)) { storageId = id; break; }
+        console.log('Remove monitor - idsToCheck:', idsToCheck, 'targetId:', targetId);
+        // Remove from every scope where it exists so it doesn’t linger/auto-respond
+        let removedAny = false;
+        for (const id of idsToCheck) {
+          try {
+            const list = await channelMonitoring.getMonitoredChannels(id);
+            if (list.some(c => c.channelId === targetId)) {
+              const deleteResult = await channelMonitoring.removeMonitoredChannel(id, targetId);
+              removedAny = removedAny || deleteResult?.success;
+            }
+          } catch {}
         }
-        console.log('Remove monitor - resolved storageId:', storageId);
-        if (!storageId) break;
-
-        const deleteResult = await channelMonitoring.removeMonitoredChannel(storageId, targetId);
-        console.log('Remove monitor - delete result:', deleteResult?.success);
-        if (deleteResult.success) {
+        if (removedAny) {
           await client.chat.postEphemeral({
             channel: userId,
             user: userId,
@@ -4478,7 +4482,7 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
 
           // Refresh the modal with union across scopes
           const merged = new Map();
-          for (const id of candidateIds) {
+          for (const id of idsToCheck) {
             try {
               const list = await channelMonitoring.getMonitoredChannels(id);
               for (const ch of list) merged.set(ch.channelId, ch);
@@ -4493,7 +4497,7 @@ app.action(/^monitored_channel_actions_(.+)$/, async ({ ack, body, client, conte
           await client.chat.postEphemeral({
             channel: userId,
             user: userId,
-            text: `❌ Failed to remove channel: ${deleteResult.error}`
+            text: '❌ Failed to remove channel (not found in any scope).'
           });
         }
         break;
@@ -4616,7 +4620,7 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
   await ack();
 
   try {
-    const teamId = body.team?.id || context.teamId;
+    const primaryTeamId = getMonitoringTeamId(context, body);
     const userId = body.user?.id;
 
     const metadata = JSON.parse(view.private_metadata);
@@ -4636,19 +4640,21 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
       return;
     }
 
-    // Determine storage scope holding this channel (team or enterprise)
-    const candidateIds = [
-      teamId,
+    // Determine storage scope holding this channel (team or enterprise) using union set
+    const idsToCheck = Array.from(new Set([
+      primaryTeamId,
+      context?.teamId,
+      body?.user?.team_id,
       (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
-    ].filter(Boolean);
-    console.log('Edit monitor submit - candidateIds:', candidateIds, 'channelId:', channelId);
+    ].filter(Boolean)));
+    console.log('Edit monitor submit - idsToCheck:', idsToCheck, 'channelId:', channelId);
     let storageId = null;
-    for (const id of candidateIds) {
+    for (const id of idsToCheck) {
       const list = await channelMonitoring.getMonitoredChannels(id);
-       console.log('Edit monitor submit - fetched list for id:', id, 'count:', Array.isArray(list) ? list.length : 0);
+      console.log('Edit monitor submit - fetched list for id:', id, 'count:', Array.isArray(list) ? list.length : 0);
       if (list.some(c => c.channelId === channelId)) { storageId = id; break; }
     }
-    if (!storageId) storageId = teamId;
+    if (!storageId) storageId = primaryTeamId;
     console.log('Edit monitor submit - resolved storageId:', storageId);
 
     const result = await channelMonitoring.updateMonitoredChannel(storageId, channelId, {
@@ -4667,7 +4673,7 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
 
       // Refresh manage modal with union across scopes
       const merged = new Map();
-      for (const id of candidateIds) {
+      for (const id of idsToCheck) {
         try {
           const list = await channelMonitoring.getMonitoredChannels(id);
           console.log('Edit monitor submit - refresh list for id:', id, 'count:', Array.isArray(list) ? list.length : 0);
