@@ -18,19 +18,22 @@ class IntegrationService {
     }
 
     const { baseUrl, username, apiToken, defaultProject } = credentials;
-
-    // Add default project to params if not specified
-    if (action === 'create_ticket' && !params.project && defaultProject) {
-      params.defaultProject = defaultProject;
-    }
+    const normalizedBaseUrl = (baseUrl || '').replace(/\/+$/, '');
 
     switch (action) {
       case 'create_ticket':
-        return await this.createJiraTicket(baseUrl, username, apiToken, params);
+        // Resolve project key explicitly; require it
+        {
+          const projectKey = params.project || defaultProject;
+          if (!projectKey) {
+            throw new Error('No Jira project specified. Set a default project in Jira settings or include a "project" key.');
+          }
+          return await this.createJiraTicket(normalizedBaseUrl, username, apiToken, { ...params, project: projectKey });
+        }
       case 'get_ticket':
-        return await this.getJiraTicket(baseUrl, username, apiToken, params);
+        return await this.getJiraTicket(normalizedBaseUrl, username, apiToken, params);
       case 'search_tickets':
-        return await this.searchJiraTickets(baseUrl, username, apiToken, params);
+        return await this.searchJiraTickets(normalizedBaseUrl, username, apiToken, params);
       default:
         throw new Error(`Unknown Jira action: ${action}`);
     }
@@ -39,14 +42,14 @@ class IntegrationService {
   async createJiraTicket(baseUrl, username, apiToken, params) {
     try {
       const { project, summary, description, issueType = 'Task' } = params;
-      
-      // Use the project from params, or fall back to default project from credentials
-      const projectKey = project || params.defaultProject || 'TASK';
+      if (!project) {
+        throw new Error('Project key is required to create a Jira ticket.');
+      }
       
       console.log('Creating Jira ticket with:', {
         baseUrl,
         username,
-        projectKey,
+        project,
         summary,
         description,
         issueType
@@ -56,7 +59,7 @@ class IntegrationService {
         `${baseUrl}/rest/api/2/issue`,
         {
           fields: {
-            project: { key: projectKey },
+            project: { key: project },
             summary: summary,
             description: description,
             issuetype: { name: issueType }
@@ -68,7 +71,8 @@ class IntegrationService {
             password: apiToken
           },
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
           }
         }
       );
@@ -79,26 +83,30 @@ class IntegrationService {
         success: true,
         ticketKey: response.data.key,
         ticketUrl: `${baseUrl}/browse/${response.data.key}`,
-        message: `Created Jira ticket ${response.data.key} in project ${projectKey}: ${summary}`
+        message: `Created Jira ticket ${response.data.key} in project ${project}: ${summary}`
       };
     } catch (error) {
-      console.error('Error creating Jira ticket:', error.response?.data || error.message);
-      console.error('Full error details:', error);
-      
-      // Extract more helpful error messages from Jira API
-      let errorMessage = 'Failed to create ticket';
-      if (error.response?.data?.errorMessages) {
-        errorMessage = error.response.data.errorMessages.join(', ');
-      } else if (error.response?.data?.errors) {
-        const errors = Object.entries(error.response.data.errors)
-          .map(([field, msg]) => `${field}: ${msg}`)
-          .join(', ');
-        errorMessage = errors;
+      const data = error.response?.data;
+      let details = '';
+
+      if (Array.isArray(data?.errorMessages) && data.errorMessages.length) {
+        details = data.errorMessages.join(', ');
+      } else if (data?.errors && Object.keys(data.errors).length) {
+        details = Object.entries(data.errors).map(([field, msg]) => `${field}: ${msg}`).join(', ');
+      } else if (typeof data === 'string' && data.trim()) {
+        details = data.trim();
+      } else if (data?.message) {
+        details = data.message;
+      } else if (error.response?.status) {
+        details = `HTTP ${error.response.status} ${error.response.statusText || ''}`.trim();
       } else if (error.message) {
-        errorMessage = error.message;
+        details = error.message;
+      } else {
+        details = 'Unknown error';
       }
-      
-      throw new Error(`Failed to create Jira ticket: ${errorMessage}`);
+
+      console.error('Error creating Jira ticket:', data || error.message);
+      throw new Error(`Failed to create Jira ticket: ${details}`);
     }
   }
 

@@ -1597,9 +1597,9 @@ app.event('message', async ({ event, say, client, context }) => {
           thread_ts: event.ts
         });
 
-        // Get AI response with conversation context
+        // Get AI response with conversation context (pass only the user's text; callGrokAPI builds its own system prompt)
         const teamIdForAPI = context.isEnterpriseInstall && context.enterpriseId ? context.enterpriseId : team;
-        const aiResponse = await callGrokAPI(userText + '\n\n' + systemPrompt, user, conversationHistory, teamIdForAPI, context);
+        const aiResponse = await callGrokAPI(userText, user, conversationHistory, teamIdForAPI, context);
 
         // Delete the thinking message
         await client.chat.delete({
