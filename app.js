@@ -1138,10 +1138,19 @@ app.event('app_mention', async ({ event, say, client, context }) => {
 
     // Skip handling here if this channel is monitored; the channel message handler will respond.
     try {
-      const primaryId = event.team || context.teamId;
-      let monitored = await channelMonitoring.isChannelMonitored(primaryId, event.channel);
-      if (!monitored && context?.isEnterpriseInstall && context?.enterpriseId) {
-        monitored = await channelMonitoring.isChannelMonitored(context.enterpriseId, event.channel);
+      const idsToCheck = Array.from(new Set([
+        context?.teamId,
+        event?.team,
+        (context?.isEnterpriseInstall && context?.enterpriseId) ? context.enterpriseId : null,
+      ].filter(Boolean)));
+      let monitored = null;
+      for (const id of idsToCheck) {
+        try {
+          const m = await channelMonitoring.isChannelMonitored(id, event.channel);
+          if (m) { monitored = m; break; }
+        } catch (e) {
+          console.log('Monitor lookup failed in app_mention for id', id, e.message);
+        }
       }
       if (monitored) {
         console.log('Skipping app_mention (monitored channel); channel handler will respond.');
@@ -1442,6 +1451,19 @@ app.event('message', async ({ event, say, client, context }) => {
         const channel = event.channel;
         const user = event.user;
         const userText = String(event.text || '').slice(0, 4000);
+
+        // Dedup per message event to prevent duplicate replies (e.g., retries)
+        try {
+          const dedupKey = `processed:${team}:${channel}:${event.ts}`;
+          const seen = await redisService.get(dedupKey);
+          if (seen) {
+            console.log('Skipping duplicate event for dedupKey:', dedupKey);
+            return;
+          }
+          await redisService.set(dedupKey, '1', 30); // TTL 30 seconds
+        } catch (e) {
+          console.log('Dedup check failed:', e.message);
+        }
 
         // Attempt to join the channel to ensure the bot can read/post (public channels). Ignore failures.
         try {
