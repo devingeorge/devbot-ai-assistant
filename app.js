@@ -1136,6 +1136,21 @@ app.event('app_mention', async ({ event, say, client, context }) => {
       return;
     }
 
+    // Skip handling here if this channel is monitored; the channel message handler will respond.
+    try {
+      const primaryId = event.team || context.teamId;
+      let monitored = await channelMonitoring.isChannelMonitored(primaryId, event.channel);
+      if (!monitored && context?.isEnterpriseInstall && context?.enterpriseId) {
+        monitored = await channelMonitoring.isChannelMonitored(context.enterpriseId, event.channel);
+      }
+      if (monitored) {
+        console.log('Skipping app_mention (monitored channel); channel handler will respond.');
+        return;
+      }
+    } catch (e) {
+      console.log('Monitor check failed in app_mention:', e.message);
+    }
+
     // Show typing indicator (with fallback)
     try {
       await client.conversations.mark({
