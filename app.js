@@ -1534,6 +1534,17 @@ app.event('message', async ({ event, say, client, context }) => {
           return;
         }
 
+        // If channel requires mention for AI replies, enforce it here (key-phrases already handled above)
+        const rawText = event.text || '';
+        const mentioned = rawText.includes(`<@${context.botUserId}>`);
+        if (monitoredChannel.mentionRequiredForAI && !mentioned) {
+          console.log('AI reply suppressed (mention required for this channel).', {
+            mentionRequiredForAI: monitoredChannel.mentionRequiredForAI,
+            mentioned
+          });
+          return;
+        }
+
         // Build system prompt based on response type
         let systemPrompt;
         switch (monitoredChannel.responseType) {
@@ -4530,6 +4541,7 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
     const responseType = values.response_type?.response_type_input?.selected_option?.value;
     const autoJiraTickets = values.auto_jira_tickets?.auto_jira_input?.selected_options?.some(option => option.value === 'enabled') || false;
     const keyphraseOnly = values.keyphrase_only?.keyphrase_only_input?.selected_options?.some(option => option.value === 'enabled') || false;
+    const mentionRequiredForAI = values.mention_required_ai?.mention_required_ai_input?.selected_options?.some(option => option.value === 'enabled') || false;
 
     if (!channelId || !responseType) {
       await client.chat.postEphemeral({
@@ -4568,6 +4580,7 @@ app.view('add_monitored_channel', async ({ ack, body, client, view, context }) =
       enabled: true,
       autoCreateJiraTickets: autoJiraTickets,
       keyphraseOnly,
+      mentionRequiredForAI,
       addedBy: userId
     });
 
@@ -4630,6 +4643,7 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
     const responseType = values.response_type?.response_type_input?.selected_option?.value;
     const autoJiraTickets = values.auto_jira_tickets?.auto_jira_input?.selected_options?.some(option => option.value === 'enabled') || false;
     const keyphraseOnly = values.keyphrase_only?.keyphrase_only_input?.selected_options?.some(option => option.value === 'enabled') || false;
+    const mentionRequiredForAI = values.mention_required_ai?.mention_required_ai_input?.selected_options?.some(option => option.value === 'enabled') || false;
 
     if (!responseType) {
       await client.chat.postEphemeral({
@@ -4660,7 +4674,8 @@ app.view('edit_monitored_channel', async ({ ack, body, client, view, context }) 
     const result = await channelMonitoring.updateMonitoredChannel(storageId, channelId, {
       responseType,
       autoCreateJiraTickets: autoJiraTickets,
-      keyphraseOnly
+      keyphraseOnly,
+      mentionRequiredForAI
     });
     console.log('Edit monitor submit - update result:', result?.success, 'new state:', result?.channel);
 
@@ -4721,6 +4736,11 @@ app.action('auto_jira_input', async ({ ack }) => {
 
 // Handle key-phrase trigger flags in modals
 app.action('kp_flags_input', async ({ ack }) => {
+  await ack();
+});
+
+// Handle key-phrase reply location radio in modals
+app.action('mention_required_ai_input', async ({ ack }) => {
   await ack();
 });
 

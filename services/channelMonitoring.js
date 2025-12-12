@@ -51,6 +51,7 @@ async function addMonitoredChannel(teamId, channelData) {
       enabled: channelData.enabled !== false,
       autoCreateJiraTickets: channelData.autoCreateJiraTickets || false,
       keyphraseOnly: channelData.keyphraseOnly || false,
+      mentionRequiredForAI: channelData.mentionRequiredForAI || false,
       addedAt: new Date().toISOString(),
       addedBy: channelData.addedBy,
     };
@@ -316,6 +317,27 @@ function addMonitoredChannelModal() {
         },
       },
       {
+        type: 'section',
+        block_id: 'mention_required_ai',
+        text: {
+          type: 'mrkdwn',
+          text: '*Require @mention to respond*',
+        },
+        accessory: {
+          type: 'checkboxes',
+          action_id: 'mention_required_ai_input',
+          options: [
+            {
+              text: {
+                type: 'plain_text',
+                text: 'Require @mention of the bot for AI replies',
+              },
+              value: 'enabled',
+            },
+          ],
+        },
+      },
+      {
         type: 'context',
         elements: [
           {
@@ -367,6 +389,7 @@ function manageMonitoredChannelsModal(channels) {
             `Response Type: *${channel.responseType}*\n` +
             `Auto-Jira: ${channel.autoCreateJiraTickets ? 'Enabled' : 'Disabled'} ${jiraEmoji}\n` +
             `Mode: ${channel.keyphraseOnly ? 'Key-phrases only' : 'AI + key-phrases'}\n` +
+            `Mentions: ${channel.mentionRequiredForAI ? 'Required' : 'Not required'}\n` +
             `Added: ${new Date(channel.addedAt).toLocaleDateString()}`,
         },
         accessory: {
@@ -450,6 +473,10 @@ function editMonitoredChannelModal(channel) {
     { text: { type: 'plain_text', text: 'Only respond when a key-phrase matches' }, value: 'enabled' },
   ];
   const kpOnlyInitial = channel.keyphraseOnly ? [kpOnlyOptions[0]] : [];
+  const mentionOptions = [
+    { text: { type: 'plain_text', text: 'Require @mention of the bot for AI replies' }, value: 'enabled' },
+  ];
+  const mentionInitial = channel.mentionRequiredForAI ? [mentionOptions[0]] : [];
 
   return {
     type: 'modal',
@@ -515,6 +542,18 @@ function editMonitoredChannelModal(channel) {
         accessory: Object.assign(
           { type: 'checkboxes', action_id: 'keyphrase_only_input', options: kpOnlyOptions },
           kpOnlyInitial.length ? { initial_options: kpOnlyInitial } : {}
+        ),
+      },
+      {
+        type: 'section',
+        block_id: 'mention_required_ai',
+        text: {
+          type: 'mrkdwn',
+          text: '*Require @mention to respond*',
+        },
+        accessory: Object.assign(
+          { type: 'checkboxes', action_id: 'mention_required_ai_input', options: mentionOptions },
+          mentionInitial.length ? { initial_options: mentionInitial } : {}
         ),
       },
     ],
