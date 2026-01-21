@@ -22,7 +22,6 @@ class RedisService {
         connectTimeout: 5000,
         lazyConnect: true,
         retryDelayOnFailover: 100,
-        maxRetriesPerRequest: 2,
         enableReadyCheck: false,
         maxRetriesPerRequest: null,
       });
@@ -97,9 +96,23 @@ class RedisService {
       const isEnterprise = Boolean(installation?.isEnterpriseInstall);
       const enterpriseId = installation?.enterprise?.id || installation?.enterprise?.team?.id || installation?.enterpriseId;
       const teamId = installation?.team?.id || installation?.team_id || installation?.teamId;
+      
+      // For enterprise installs, require enterpriseId
+      if (isEnterprise && !enterpriseId) {
+        console.error('Enterprise install detected but no enterpriseId found:', installation);
+        return Promise.reject(new Error('Enterprise installation missing enterpriseId'));
+      }
+      
+      // For team installs, require teamId
+      if (!isEnterprise && !teamId) {
+        console.error('Team install detected but no teamId found:', installation);
+        return Promise.reject(new Error('Team installation missing teamId'));
+      }
+      
       const key = isEnterprise
         ? `installation:${enterpriseId}`
         : `installation:${teamId}`;
+      
       // 60 days TTL
       await this.client.setex(key, 86400 * 60, JSON.stringify(installation));
       console.log(`Saved installation for ${isEnterprise ? 'enterprise' : 'team'}: ${key}`);
@@ -117,15 +130,41 @@ class RedisService {
     }
     
     try {
-      const isEnterprise = Boolean(query?.isEnterpriseInstall || (!query?.teamId && query?.enterpriseId));
+      // For enterprise installs, prioritize isEnterpriseInstall flag
+      // If enterpriseId is present and isEnterpriseInstall is true, it's an enterprise install
+      const isEnterprise = Boolean(
+        query?.isEnterpriseInstall || 
+        (query?.enterpriseId && !query?.teamId)
+      );
+      
       const enterpriseId = query?.enterpriseId || query?.enterprise?.id;
       const teamId = query?.teamId || query?.team?.id;
+      
+      // For enterprise installs, we need enterpriseId
+      if (isEnterprise && !enterpriseId) {
+        console.error('Enterprise install detected but no enterpriseId found in query:', query);
+        return Promise.resolve(undefined);
+      }
+      
+      // For team installs, we need teamId
+      if (!isEnterprise && !teamId) {
+        console.error('Team install detected but no teamId found in query:', query);
+        return Promise.resolve(undefined);
+      }
+      
       const key = isEnterprise
         ? `installation:${enterpriseId}`
         : `installation:${teamId}`;
       
+      console.log(`Fetching installation with key: ${key} (isEnterprise: ${isEnterprise})`);
       const data = await this.client.get(key);
-      return Promise.resolve(data ? JSON.parse(data) : undefined);
+      
+      if (!data) {
+        console.warn(`No installation found for key: ${key}`);
+        return Promise.resolve(undefined);
+      }
+      
+      return Promise.resolve(JSON.parse(data));
     } catch (error) {
       console.error('Error getting installation:', error);
       return Promise.reject(error);
@@ -139,9 +178,25 @@ class RedisService {
     }
     
     try {
-      const isEnterprise = Boolean(query?.isEnterpriseInstall || (!query?.teamId && query?.enterpriseId));
+      // For enterprise installs, prioritize isEnterpriseInstall flag
+      const isEnterprise = Boolean(
+        query?.isEnterpriseInstall || 
+        (query?.enterpriseId && !query?.teamId)
+      );
+      
       const enterpriseId = query?.enterpriseId || query?.enterprise?.id;
       const teamId = query?.teamId || query?.team?.id;
+      
+      if (isEnterprise && !enterpriseId) {
+        console.error('Enterprise install detected but no enterpriseId found in query:', query);
+        return Promise.resolve();
+      }
+      
+      if (!isEnterprise && !teamId) {
+        console.error('Team install detected but no teamId found in query:', query);
+        return Promise.resolve();
+      }
+      
       const key = isEnterprise
         ? `installation:${enterpriseId}`
         : `installation:${teamId}`;
